@@ -1,8 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
-import { cleanRow, compute, DATASET_BY_KEY, DATASETS, parseCsv, toCsv, validateRow, type DatasetKey, type Row } from "@pmd/shared";
+import { cleanRow, compute, DATASET_BY_KEY, DATASETS, legacyRowToWo, parseCsv, toCsv, validateRow, type DatasetKey, type Row } from "@pmd/shared";
 import { prisma, allProperties, audit, getAsOf, getThresholds, scopeOf } from "../db.ts";
 import { HttpError, requireTab, staffOnly } from "../auth.ts";
+import { legacyWorkOrderRows, nextTicket } from "./workorders.ts";
+
+/** Work orders live in their own table now; the "m" register is a read-only view of it. */
+const WO_MOVED = "Work orders are now managed on the Work Orders screen. You can still import a CSV here to add many at once.";
 
 export const dataRouter = Router();
 dataRouter.use(staffOnly);
@@ -17,6 +21,7 @@ async function scopedRows(scope: string[]) {
   const rows = await prisma.datasetRow.findMany({ where: { property: { in: scope } }, orderBy: { createdAt: "asc" } });
   const by: Partial<Record<DatasetKey, (Row & { _id: string })[]>> = {};
   for (const r of rows) (by[r.dataset as DatasetKey] ??= []).push({ ...(r.data as Row), property: r.property, _id: r.id });
+  by.m = await legacyWorkOrderRows(scope);
   return by;
 }
 
@@ -43,6 +48,10 @@ dataRouter.get("/datasets/:key/rows", requireTab("data", 1), async (req, res, ne
     const scope = await scopeOf(req.user!);
     const property = typeof req.query.property === "string" && req.query.property ? req.query.property : null;
     if (property && !scope.includes(property)) throw new HttpError(403, "Not your building");
+    if (key === "m") {
+      const wos = await legacyWorkOrderRows(property ? [property] : scope);
+      return res.json(wos.map(({ _id, ...data }) => ({ id: _id, property: data.property as string, data, updatedAt: "", readOnly: true })));
+    }
     const rows = await prisma.datasetRow.findMany({ where: { dataset: key, property: property ? property : { in: scope } }, orderBy: { createdAt: "asc" } });
     res.json(rows.map((r) => ({ id: r.id, property: r.property, data: r.data, updatedAt: r.updatedAt })));
   } catch (e) {
@@ -64,6 +73,7 @@ async function checkRow(req: Express.Request, key: DatasetKey, raw: Record<strin
 dataRouter.post("/datasets/:key/rows", requireTab("data", 2), async (req, res, next) => {
   try {
     const key = dsKey(req.params.key);
+    if (key === "m") throw new HttpError(400, WO_MOVED);
     const data = await checkRow(req, key, rowBody.parse(req.body).data);
     const r = await prisma.datasetRow.create({ data: { dataset: key, property: data.property, data, createdById: req.user!.id, updatedById: req.user!.id } });
     await audit(req.user!, "row.create", { dataset: key, id: r.id });
@@ -76,6 +86,7 @@ dataRouter.post("/datasets/:key/rows", requireTab("data", 2), async (req, res, n
 dataRouter.put("/datasets/:key/rows/:id", requireTab("data", 2), async (req, res, next) => {
   try {
     const key = dsKey(req.params.key);
+    if (key === "m") throw new HttpError(400, WO_MOVED);
     const old = await prisma.datasetRow.findUnique({ where: { id: req.params.id } });
     if (!old || old.dataset !== key) throw new HttpError(404, "Row not found");
     const scope = await scopeOf(req.user!);
@@ -92,6 +103,7 @@ dataRouter.put("/datasets/:key/rows/:id", requireTab("data", 2), async (req, res
 dataRouter.delete("/datasets/:key/rows/:id", requireTab("data", 2), async (req, res, next) => {
   try {
     const key = dsKey(req.params.key);
+    if (key === "m") throw new HttpError(400, WO_MOVED);
     const old = await prisma.datasetRow.findUnique({ where: { id: req.params.id } });
     if (!old || old.dataset !== key) throw new HttpError(404, "Row not found");
     const scope = await scopeOf(req.user!);
@@ -118,6 +130,22 @@ dataRouter.post("/datasets/:key/import", requireTab("data", 2), async (req, res,
       if (err) rejected.push({ line: i + 2, message: err });
       else ok.push(r);
     });
+    if (key === "m") {
+      if (mode === "replace") throw new HttpError(400, "Replace is not available for work orders. Use append; rows whose ticket already exists are skipped.");
+      const today = new Date().toISOString().slice(0, 10);
+      let imported = 0;
+      await prisma.$transaction(async (tx) => {
+        for (const [i, r] of ok.entries()) {
+          const f = legacyRowToWo(r, today);
+          if (f.ticket && (await tx.workOrder.findUnique({ where: { ticket: f.ticket } }))) { rejected.push({ line: i + 2, message: `ticket ${f.ticket} already exists` }); continue; }
+          const w = await tx.workOrder.create({ data: { ...f, ticket: f.ticket || (await nextTicket(tx)), dateOpened: new Date(f.dateOpened), targetDate: new Date(f.targetDate), completedAt: f.completedAt ? new Date(f.completedAt) : null, closedAt: f.closedAt ? new Date(f.closedAt) : null, legacyData: r, createdById: req.user!.id, updatedById: req.user!.id } });
+          await tx.workOrderEvent.create({ data: { workOrderId: w.id, kind: "created", toStatus: w.status, message: "Imported from CSV", authorId: req.user!.id } });
+          imported++;
+        }
+      }, { timeout: 120_000 });
+      await audit(req.user!, "dataset.import", { dataset: key, mode, imported, rejected: rejected.length });
+      return res.json({ imported, rejected });
+    }
     await prisma.$transaction(async (tx) => {
       if (mode === "replace") {
         const ps = [...new Set(ok.map((r) => r.property))];
@@ -136,7 +164,7 @@ dataRouter.get("/datasets/:key/export.csv", requireTab("data", 1), async (req, r
   try {
     const key = dsKey(req.params.key);
     const scope = await scopeOf(req.user!);
-    const rows = await prisma.datasetRow.findMany({ where: { dataset: key, property: { in: scope } }, orderBy: { createdAt: "asc" } });
+    const rows = key === "m" ? (await legacyWorkOrderRows(scope)).map(({ _id, ...data }) => ({ data })) : await prisma.datasetRow.findMany({ where: { dataset: key, property: { in: scope } }, orderBy: { createdAt: "asc" } });
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${key}-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(toCsv(key, rows.map((r) => r.data as Row)));

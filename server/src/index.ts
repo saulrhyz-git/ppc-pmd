@@ -11,6 +11,7 @@ import { authRouter, HttpError, loadUser } from "./auth.ts";
 import { dataRouter } from "./routes/data.ts";
 import { concernsRouter } from "./routes/concerns.ts";
 import { adminRouter } from "./routes/admin.ts";
+import { workOrdersRouter } from "./routes/workorders.ts";
 import { requireAuth } from "./auth.ts";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -43,6 +44,7 @@ app.use(loadUser);
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/concerns", concernsRouter);
+app.use("/api/work-orders", workOrdersRouter);
 app.use("/api", adminRouter);
 app.use("/api", requireAuth, dataRouter);
 app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));

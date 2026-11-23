@@ -53,3 +53,10 @@ textarea.in{font:14px/1.4 system-ui,sans-serif}
 .kv{display:grid;grid-template-columns:minmax(120px,35%) 1fr;gap:4px 10px;font-size:13px}.kv dt{color:var(--mu)}.kv dd{margin:0;white-space:pre-wrap}
 td.wrap{white-space:normal;min-width:180px}
 .center{text-align:center}
+/* work orders */
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0 10px}
+label.chk{gap:4px;margin-right:10px;font-size:14px}
+.pill.st-new{background:#667089}.pill.st-assigned{background:#2e90fa}.pill.st-in-progress{background:#7a5af8}.pill.st-on-hold{background:var(--a);color:#1b1b1b}.pill.st-completed{background:#06aed4}.pill.st-closed{background:var(--g)}.pill.st-cancelled{background:var(--ln);color:var(--tx)}
+.wocards{display:none}.woc{border:1px solid var(--ln);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;display:flex;flex-direction:column;gap:3px;background:var(--bg)}.woc b{font-size:15px}
+@media(max-width:719px){.wocards{display:block}.wotable{display:none}}
+.ff label.chk input,.ff label.row input[type=checkbox]{width:auto}

@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
-    "test": "node --import tsx --test src/engine.test.ts"
+    "test": "node --import tsx --test src/engine.test.ts src/workorders.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

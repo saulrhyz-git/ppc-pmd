@@ -4,6 +4,8 @@ import { CONCERN_STATUS, type ConcernDTO } from "@pmd/shared";
 import { api } from "../api";
 import { Card, Pill, Sheet, Table } from "../ui";
 import { fmtDate } from "./common";
+import { useAuth } from "../auth";
+import { NewWorkOrderSheet, WorkOrderSheet } from "./WorkOrders";
 
 export const useConcerns = () => useQuery({ queryKey: ["concerns"], queryFn: () => api.get<ConcernDTO[]>("/concerns"), refetchInterval: 60_000 });
 
@@ -58,6 +60,10 @@ function ConcernSheet({ c, onClose }: { c: ConcernDTO; onClose: () => void }) {
     onSuccess: () => { setMsg(""); refresh(); }, onError: (e) => setErr((e as Error).message),
   });
   const cur = useConcerns().data?.find((x) => x.id === c.id) ?? c;
+  const { user } = useAuth();
+  const [newWo, setNewWo] = useState(false);
+  const [woId, setWoId] = useState<string | null>(null);
+  const canWo = !!user && (user.tabs.wos ?? 0) >= 2;
   return (
     <Sheet title={`${cur.controlNo} · ${cur.property}`} onClose={onClose}>
       <dl className="kv">
@@ -86,7 +92,12 @@ function ConcernSheet({ c, onClose }: { c: ConcernDTO; onClose: () => void }) {
           <p className="mu">Receiving creates a concern slip. Responding records the response time on that slip; Resolved sets the resolution time and Closed closes the slip.</p>
         </>
       )}
+      {cur.receivedAt && canWo && (
+        <p><button className="cta sm sec" onClick={() => setNewWo(true)}>+ Create work order for this concern</button></p>
+      )}
       {err && <p className="err">{err}</p>}
+      {newWo && <NewWorkOrderSheet buildings={[cur.property]} prefill={{ property: cur.property, title: cur.concern.slice(0, 120), description: cur.concern, trade: cur.trade, location: cur.location, tenant: cur.tenantName, reportedBy: cur.createdByName, concernId: cur.id }} onClose={() => setNewWo(false)} onCreated={(w) => setWoId(w.id)} />}
+      {woId && <WorkOrderSheet id={woId} onClose={() => setWoId(null)} />}
     </Sheet>
   );
 }

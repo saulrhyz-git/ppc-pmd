@@ -5,7 +5,7 @@ import { useAuth } from "./auth";
 import { useDashboard, useFilter } from "./state";
 
 export const TAB_PATH: Record<TabKey, string> = {
-  brief: "/", ov: "/overview", wo: "/concerns", as: "/breakdowns", bud: "/financial", pjm: "/projects",
+  brief: "/", ov: "/overview", wos: "/work-orders", wo: "/concerns", as: "/breakdowns", bud: "/financial", pjm: "/projects",
   pm: "/preventive", per: "/permits", ct: "/contracts", sf: "/safety", data: "/data", set: "/settings",
 };
 
@@ -13,6 +13,7 @@ const ICON: Partial<Record<TabKey, string>> = {
   brief: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
   ov: '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>',
   wo: '<rect x="5" y="4" width="14" height="17" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 13l2 2 4-4"/>',
+  wos: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   as: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
   bud: '<circle cx="12" cy="12" r="9"/><path d="M12 6.5v11M15 9.5c0-1.3-1.3-2-3-2s-3 .8-3 2 1.2 1.8 3 2.2 3 .8 3 2.2-1.3 2-3 2-3-.7-3-2"/>',
   pjm: '<path d="M4 20V9l4-3v14M10 20V4h5v16M17 20v-9h3v9"/><path d="M3 20h18"/>',

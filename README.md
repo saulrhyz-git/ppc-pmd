@@ -15,6 +15,7 @@ every register. It is the production version of the single-file prototype (PMD v
 | --- | --- |
 | Needs Focus | Buildings ranked by Red KPIs and attention score, with their three worst issues |
 | Overall / Section Overview | Section cards, ranking table, KPI tiles per building |
+| Work Orders | Every work order with status, priority and assignees; start / hold / complete / verify / close; work notes and full history. Phone-friendly for technicians |
 | Concerns & Work Orders | 6-month concern charts by building and trade, tenant-portal inbox, concern slips, reactive vs preventive, leadtime compliance, open work orders, recurring concerns |
 | Breakdowns & Assets | MTTR, breakdown log, critical system uptime (Power, Water, Elevator, FDAS, AFSS) |
 | Financial Performance | Budget utilisation YTD, monthly opex chart, quarterly variance |
@@ -27,7 +28,7 @@ every register. It is the production version of the single-file prototype (PMD v
 | Tenant portal | Tenants raise concerns with photos, see status and replies, send follow-ups |
 
 **Roles.** General Manager and Department Head see every building. Supervisors see the buildings in their section.
-Admin/Engineers see their assigned buildings. Tenants only see the tenant portal for their own concerns.
+Admin/Engineers and Technicians see their assigned buildings. Tenants only see the tenant portal for their own concerns.
 All filtering is enforced on the server. Only the Department Head can open Settings beyond "My password".
 
 **Tenant concerns.** When staff press *Receive*, the concern is copied to the Concern slips register. Responding fills
@@ -55,6 +56,7 @@ Demo accounts (password `ChangeMe123!`, or `SEED_PASSWORD` if you set it):
 | dh@example.com | Department Head |
 | sup.commercial@example.com, sup.industrial@example.com, sup.residential@example.com | Supervisor |
 | eng1@example.com, eng2@example.com, eng3@example.com | Admin/Engineer |
+| tech1@example.com (Tower A, Plaza B), tech2@example.com (Annex C, Court D, Hall E) | Technician |
 | tenant@example.com | Tenant (Acme Corp, Tower A) |
 
 ## Deploy to the local server
@@ -92,6 +94,17 @@ restarts the service.
 **HTTPS.** Put nginx (or another reverse proxy) in front with a certificate, proxy to `localhost:3000`, and set
 `COOKIE_SECURE=1` and `TRUST_PROXY=1` in `.env`.
 
+**Work orders.** Each work order moves through *New → Assigned → In Progress ⇄ On Hold → Completed → Closed*, or
+*Cancelled*. Supervisors, Admin/Engineers, the Department Head and the GM (managers) create, assign, edit, verify and
+close. Technicians create work orders, and on work orders assigned to them they start, put on hold, resume and mark
+completed, and edit the work notes. Anyone with access can comment. Putting on hold, completing and cancelling need a
+note. Every change is recorded in the work order's history. Completed and Closed work orders count as done for the
+dashboards; Cancelled ones are left out. A received tenant concern can be turned into a work order in one step.
+
+The old "Work orders (master log)" register was moved into the work order table by the `20261124000000_work_orders`
+migration (each row's original data is kept in `legacyData`). On the Data screen that register is now read-only;
+CSV import still adds work orders.
+
 **Backups.** Back up the database (`pg_dump pmd`) and the `UPLOAD_DIR` folder, which holds tenant photos and files.
 
 ## Project layout
@@ -100,9 +113,10 @@ restarts the service.
 shared/src/datasets.ts    register definitions, validation, CSV
 shared/src/engine.ts      KPI engine (port of the prototype's calc / applyData)
 shared/src/roles.ts       roles, screen access, building scope
+shared/src/workorders.ts  work order statuses, who may make which status change
 shared/src/thresholds.ts  Red / Amber targets
 server/prisma/            database schema, migrations, seed
-server/src/               Express API (auth, data, concerns, admin)
+server/src/               Express API (auth, data, concerns, work orders, admin)
 client/src/pages/         one file per screen
 deploy/                   deploy script and systemd unit
 ```

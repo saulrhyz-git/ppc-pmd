@@ -32,7 +32,7 @@ function UserForm({ u, onClose }: { u: Draft; onClose: () => void }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["users"] }); onClose(); },
     onError: (e) => setErr((e as Error).message),
   });
-  const needsProps = f.role === "Admin/Engineer" || f.role === "Tenant";
+  const needsProps = f.role === "Admin/Engineer" || f.role === "Technician" || f.role === "Tenant";
   return (
     <Sheet title={f.id ? `Edit ${u.name}` : "Add user"} onClose={onClose}>
       <label className="ff"><span className="mu">Name</span><input value={f.name} onChange={(e) => set("name", e.target.value)} /></label>

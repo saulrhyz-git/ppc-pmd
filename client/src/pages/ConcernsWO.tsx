@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TRADES, type PropertyResult } from "@pmd/shared";
 import { BySection, Card, Legend as Lg, Pie, Pill, Table } from "../ui";
@@ -145,7 +146,7 @@ function Leadtime({ props }: { props: PropertyResult[] }) {
 function WorkOrders({ props }: { props: PropertyResult[] }) {
   const all = props.flatMap((p) => p.openWorkOrders.map((w) => ({ ...w, p: p.name })));
   return (
-    <Card title="Open work orders" sub="Sorted past-target first, then oldest. Aged (over 7 days) is shown separately from past target.">
+    <Card title="Open work orders" sub="Sorted past-target first, then oldest. Aged (over 7 days) is shown separately from past target." right={<Link to="/work-orders">Manage work orders →</Link>}>
       <BySection props={props} items={all} of={(w) => w.p} empty="No open work orders." render={(L) => (
         <Table head={["Ticket", "Asset", "Company", "Chargeable", "Type", "Work request", "Reason", "Action taken", "Age", "Past target", "Owner"]}>
           {L.map((w) => (
@@ -188,7 +189,7 @@ export default function ConcernsWO() {
           {sub === "lt" && <Leadtime props={props} />}
           {sub === "wo" && <WorkOrders props={props} />}
           {sub === "rc" && <RecurringView props={props} />}
-          {user && <EditDataHint datasets={[["cs", "Concern slips"], ["m", "Work orders"], ["tr", "Tenant register"]]} />}
+          {user && <EditDataHint datasets={[["cs", "Concern slips"], ["tr", "Tenant register"]]} />}
         </>
       )}
     </Screen>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { canEditData, DATASET_BY_KEY, DATASETS, toCsv, validateRow, type Column, type DatasetKey, type Row } from "@pmd/shared";
 import { api, type DataRow } from "../api";
@@ -28,20 +28,22 @@ export default function DataEntry() {
   const [draft, setDraft] = useState<Row>({});
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   const [importMode, setImportMode] = useState<"append" | "replace">("append");
-  const editable = !!user && canEditData(user);
+  const canImport = !!user && canEditData(user);
+  const isWo = key === "m"; // work orders have their own screen; this register is a read-only view of them
+  const editable = canImport && !isWo;
 
   const rowsQ = useQuery({ queryKey: ["rows", key], queryFn: () => api.get<DataRow[]>(`/datasets/${key}/rows`) });
   const scope = useQuery({ queryKey: ["concern-buildings"], queryFn: () => api.get<string[]>("/concerns/buildings") });
   const buildings = scope.data ?? [];
   const rows = useMemo(() => (rowsQ.data ?? []).filter((r) => building === "All" || r.property === building), [rowsQ.data, building]);
 
-  const refresh = () => { qc.invalidateQueries({ queryKey: ["rows", key] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["rows", key] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); qc.invalidateQueries({ queryKey: ["wos"] }); };
   const fail = (e: unknown) => setMsg({ err: (e as Error).message });
   const save = useMutation({ mutationFn: (r: DataRow) => api.put(`/datasets/${key}/rows/${r.id}`, { data: edits[r.id] }), onSuccess: (_d, r) => { setEdits((e) => { const n = { ...e }; delete n[r.id]; return n; }); setMsg({ ok: "Saved." }); refresh(); }, onError: fail });
   const del = useMutation({ mutationFn: (id: string) => api.del(`/datasets/${key}/rows/${id}`), onSuccess: () => { setMsg({ ok: "Deleted." }); refresh(); }, onError: fail });
   const add = useMutation({ mutationFn: () => api.post(`/datasets/${key}/rows`, { data: { ...draft, property: draft.property || (building !== "All" ? building : buildings[0]) } }), onSuccess: () => { setDraft({}); setMsg({ ok: "Row added." }); refresh(); }, onError: fail });
   const imp = useMutation({
-    mutationFn: (csv: string) => api.post<{ imported: number; rejected: { line: number; message: string }[] }>(`/datasets/${key}/import`, { csv, mode: importMode }),
+    mutationFn: (csv: string) => api.post<{ imported: number; rejected: { line: number; message: string }[] }>(`/datasets/${key}/import`, { csv, mode: isWo ? "append" : importMode }),
     onSuccess: (r) => { setMsg(r.rejected.length ? { ok: `${r.imported} rows imported.`, err: `${r.rejected.length} rows skipped: ` + r.rejected.slice(0, 8).map((x) => `line ${x.line}: ${x.message}`).join("; ") + (r.rejected.length > 8 ? "; …" : "") } : { ok: `${r.imported} rows imported.` }); refresh(); },
     onError: fail,
   });
@@ -73,13 +75,16 @@ export default function DataEntry() {
           <button className="lnk" onClick={template}>Blank template</button>
         </div>
         <p className="mu">{def.description}</p>
-        {editable && (
+        {isWo && <p><b>Work orders now have their own screen.</b> <Link to="/work-orders">Open Work Orders →</Link> <span className="mu">This list is read-only. Importing a CSV adds new work orders; rows whose ticket already exists are skipped.</span></p>}
+        {canImport && (
           <div className="row" style={{ margin: "6px 0" }}>
             <b>Import CSV</b>
-            <select className="in" value={importMode} onChange={(e) => setImportMode(e.target.value as "append")}>
-              <option value="append">Add to existing rows</option>
-              <option value="replace">Replace rows for the buildings in the file</option>
-            </select>
+            {!isWo && (
+              <select className="in" value={importMode} onChange={(e) => setImportMode(e.target.value as "append")}>
+                <option value="append">Add to existing rows</option>
+                <option value="replace">Replace rows for the buildings in the file</option>
+              </select>
+            )}
             <input type="file" accept=".csv,text/csv" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
             {imp.isPending && <span className="mu">Importing…</span>}
           </div>

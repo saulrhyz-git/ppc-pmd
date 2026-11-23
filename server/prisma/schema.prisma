@@ -15,34 +15,39 @@ model Section {
 }
 
 model Property {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  sectionId   String?
-  section     Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
-  scoreRed    Int      @default(3)
-  scoreAmber  Int      @default(1)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  name       String   @unique
+  sectionId  String?
+  section    Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  scoreRed   Int      @default(3)
+  scoreAmber Int      @default(1)
+  createdAt  DateTime @default(now())
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   name         String
   passwordHash String
   role         String
   section      String?
   properties   String[]
-  canApprove   Boolean  @default(false)
+  canApprove   Boolean   @default(false)
   tabs         Json
-  active       Boolean  @default(true)
-  failedLogins Int      @default(0)
+  active       Boolean   @default(true)
+  failedLogins Int       @default(0)
   lockedUntil  DateTime?
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  concerns Concern[]        @relation("ConcernCreator")
+  concerns Concern[]       @relation("ConcernCreator")
   updates  ConcernUpdate[]
+
+  woAssignments WorkOrderAssignee[] @relation("WoAssignee")
+  woAssigned    WorkOrderAssignee[] @relation("WoAssigner")
+  woCreated     WorkOrder[]         @relation("WoCreator")
+  woEvents      WorkOrderEvent[]
 }
 
 /// One row of a register or log (concern slips, work orders, PM sheet, ...).
@@ -78,21 +83,96 @@ model Concern {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  updates ConcernUpdate[]
+  updates    ConcernUpdate[]
+  workOrders WorkOrder[]
 
   @@index([property])
 }
 
+/// A work order. Replaces the old "m" (work orders master log) register rows.
+model WorkOrder {
+  id           String    @id @default(cuid())
+  ticket       String    @unique
+  property     String
+  title        String
+  description  String    @default("")
+  activityType String    @default("Reactive") // Reactive | Preventive | Requests/Improvement
+  trade        String    @default("")
+  priority     String    @default("Medium") // Low | Medium | High | Urgent
+  status       String    @default("New") // see WO_STATUSES in shared/src/workorders.ts
+  location     String    @default("")
+  asset        String    @default("")
+  reportedBy   String    @default("")
+  tenant       String    @default("")
+  rootCause    String    @default("")
+  remarks      String    @default("")
+  estCost      Decimal?  @db.Decimal(14, 2)
+  chargeable   Boolean   @default(false)
+  dateOpened   DateTime  @db.Date
+  targetDate   DateTime  @db.Date
+  startedAt    DateTime?
+  completedAt  DateTime?
+  closedAt     DateTime?
+  holdReason   String    @default("")
+  reason       String    @default("") // reason for delay past target
+  actionTaken  String    @default("")
+  ownerName    String    @default("") // free-text owner carried over from the old register
+  concernId    String?
+  concern      Concern?  @relation(fields: [concernId], references: [id], onDelete: SetNull)
+  createdById  String?
+  createdBy    User?     @relation("WoCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById  String?
+  legacyData   Json? /// the original register row, kept when migrated from the "m" register
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  assignees WorkOrderAssignee[]
+  events    WorkOrderEvent[]
+
+  @@index([property, status])
+  @@index([status])
+}
+
+model WorkOrderAssignee {
+  workOrderId  String
+  workOrder    WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation("WoAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedById String?
+  assignedBy   User?     @relation("WoAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt   DateTime  @default(now())
+
+  @@id([workOrderId, userId])
+  @@index([userId])
+}
+
+/// History of a work order: creation, status changes, assignment changes, comments and edits.
+model WorkOrderEvent {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  kind        String // created | status | assign | comment | edit
+  fromStatus  String?
+  toStatus    String?
+  message     String    @default("")
+  detail      Json?
+  authorId    String?
+  author      User?     @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+
+  @@index([workOrderId, createdAt])
+}
+
 model ConcernUpdate {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   concernId String
-  concern   Concern  @relation(fields: [concernId], references: [id], onDelete: Cascade)
+  concern   Concern   @relation(fields: [concernId], references: [id], onDelete: Cascade)
   kind      String // followup | response | status
   message   String
   authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
+  author    User      @relation(fields: [authorId], references: [id])
   seenAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 /// Files attached to a concern, concern update or dataset row. Stored on disk under UPLOAD_DIR.
