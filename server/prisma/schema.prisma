@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Section {
+  id         String     @id @default(cuid())
+  name       String     @unique
+  sortOrder  Int        @default(0)
+  properties Property[]
+}
+
+model Property {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  sectionId   String?
+  section     Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  scoreRed    Int      @default(3)
+  scoreAmber  Int      @default(1)
+  createdAt   DateTime @default(now())
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String
+  section      String?
+  properties   String[]
+  canApprove   Boolean  @default(false)
+  tabs         Json
+  active       Boolean  @default(true)
+  failedLogins Int      @default(0)
+  lockedUntil  DateTime?
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  concerns Concern[]        @relation("ConcernCreator")
+  updates  ConcernUpdate[]
+}
+
+/// One row of a register or log (concern slips, work orders, PM sheet, ...).
+/// `dataset` is the key from shared/src/datasets.ts; `data` holds the columns.
+model DatasetRow {
+  id          String   @id @default(cuid())
+  dataset     String
+  property    String
+  data        Json
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([dataset, property])
+}
+
+/// A concern raised by a tenant through the tenant portal.
+model Concern {
+  id          String    @id @default(cuid())
+  controlNo   String    @unique
+  property    String
+  tenantName  String
+  trade       String
+  location    String    @default("")
+  concern     String
+  status      String    @default("Sent")
+  createdById String
+  createdBy   User      @relation("ConcernCreator", fields: [createdById], references: [id])
+  receivedAt  DateTime?
+  receivedBy  String?
+  slipRowId   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  updates ConcernUpdate[]
+
+  @@index([property])
+}
+
+model ConcernUpdate {
+  id        String   @id @default(cuid())
+  concernId String
+  concern   Concern  @relation(fields: [concernId], references: [id], onDelete: Cascade)
+  kind      String // followup | response | status
+  message   String
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  seenAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+/// Files attached to a concern, concern update or dataset row. Stored on disk under UPLOAD_DIR.
+model Attachment {
+  id          String   @id @default(cuid())
+  ownerType   String // concern | update | row
+  ownerId     String
+  filename    String
+  mime        String
+  size        Int
+  storedName  String
+  property    String
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@index([ownerType, ownerId])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  userName  String?
+  action    String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

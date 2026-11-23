@@ -1,0 +1,19 @@
+# systemd unit for the PMD app.
+# Install:  sudo cp deploy/pmd.service /etc/systemd/system/pmd.service
+#           (edit User and WorkingDirectory below first)
+#           sudo systemctl daemon-reload && sudo systemctl enable --now pmd
+[Unit]
+Description=PPC Property Management System (PMD)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=pmd
+WorkingDirectory=/opt/ppc-pmd
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
