@@ -91,7 +91,7 @@ domain, let nginx allow `/myportal`, `/api/portal/`, `/assets/` and `/favicon.sv
 everything else to your office network or VPN, for example:
 
 ```nginx
-location ~ ^/(myportal|api/portal/|assets/|favicon\.svg) { proxy_pass http://127.0.0.1:3000; }
+location ~ ^/(myportal|api/portal/|assets/|icons/|favicon\.svg|sw\.js|offline\.html|myportal\.webmanifest) { proxy_pass http://127.0.0.1:3000; }
 location / { allow 10.0.0.0/8; allow 192.168.0.0/16; deny all; proxy_pass http://127.0.0.1:3000; }
 ```
 
@@ -159,6 +159,25 @@ restarts the service.
 
 **HTTPS.** Put nginx (or another reverse proxy) in front with a certificate, proxy to `localhost:3000`, and set
 `COOKIE_SECURE=1` and `TRUST_PROXY=1` in `.env`.
+
+**Phone app (PWA).** The staff app and My Portal can be installed on phones and open full screen from the home
+screen, like a native app. On a phone (or any small screen) the staff app switches to a phone layout: a top bar with
+the screen name, a bottom tab bar with the four most useful screens for the user's role (technicians get Work, Meters
+and Assets) and a "More" sheet with every other screen, the building filter, theme, "Install app" and sign out. A work
+order opens full screen with large Start / Put on hold / Mark completed buttons, and photos can be added straight from
+the camera (shrunk to 1600 px on the phone before upload; stored like concern attachments, `ownerType = "wo"`). The
+phone's Back button closes an open work order (its address is `/work-orders?wo=<id>`).
+
+- Install: Android/Chrome/Edge show an "Install" button; on iPhone, Safari → Share → *Add to Home Screen*. Both apps
+  show a small install card on phones until it is installed or dismissed.
+- Requirements: the site must be served over **HTTPS** with a real certificate (browsers only allow installing and
+  service workers on HTTPS; `http://localhost` is the only exception). No other nginx change is needed, but do not let
+  nginx cache `/sw.js`, the `*.webmanifest` files or the HTML pages: the server already sends `Cache-Control: no-cache`
+  for them and `immutable` for `/assets/`. If you restrict the staff app to the office network, add `/icons/`,
+  `/sw.js`, `/offline.html` and `/myportal.webmanifest` to the public paths (see the example above).
+- Offline: the service worker (`client/pwa/sw.js`, built to `dist/sw.js`) keeps the app files so the app opens without
+  signal and says "You're offline"; API data is never cached, so nothing private is stored on the phone. After a
+  deploy, open apps show "A new version of the app is ready · Reload".
 
 **Work orders.** Each work order moves through *New → Assigned → In Progress ⇄ On Hold → Completed → Closed*, or
 *Cancelled*. Supervisors, Admin/Engineers, the Department Head and the GM (managers) create, assign, edit, verify and

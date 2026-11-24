@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Kpi, Level, PropertyResult } from "@pmd/shared";
+import { usePhone } from "./pwa";
 
 export const LBL: Record<Level, string> = { r: "Red", a: "Amber", g: "Green" };
 export const nf = (n: number) => n.toLocaleString("en-US");
@@ -25,6 +26,7 @@ export function Card({ title, sub, children, right }: { title?: ReactNode; sub?:
 }
 
 export function Sheet({ title, onClose, children }: { title: ReactNode; onClose: () => void; children: ReactNode }) {
+  const phone = usePhone();
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
@@ -33,10 +35,17 @@ export function Sheet({ title, onClose, children }: { title: ReactNode; onClose:
   return (
     <div className="ov" onClick={onClose}>
       <div className="sheet" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <div className="sh">
-          <h2 style={{ margin: 0 }}>{title}</h2>
-          <button className="lnk" onClick={onClose} aria-label="Close">✕ Close</button>
-        </div>
+        {phone ? (
+          <div className="sh">
+            <button className="lnk" onClick={onClose} aria-label="Back" style={{ flex: "none" }}>‹ Back</button>
+            <h2 style={{ margin: 0, flex: 1, minWidth: 0 }}>{title}</h2>
+          </div>
+        ) : (
+          <div className="sh">
+            <h2 style={{ margin: 0 }}>{title}</h2>
+            <button className="lnk" onClick={onClose} aria-label="Close">✕ Close</button>
+          </div>
+        )}
         {children}
       </div>
     </div>

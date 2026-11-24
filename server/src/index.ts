@@ -64,10 +64,24 @@ app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(here, "../../client/dist");
 if (fs.existsSync(dist)) {
-  app.use(express.static(dist, { index: false, maxAge: "1h" }));
+  app.use(
+    express.static(dist, {
+      index: false,
+      maxAge: "1h",
+      setHeaders(res, file) {
+        const name = path.basename(file);
+        // The service worker and manifests must be re-checked on every visit, so a deploy reaches installed apps.
+        if (name === "sw.js" || name.endsWith(".webmanifest") || name === "offline.html") res.setHeader("Cache-Control", "no-cache");
+        if (name.endsWith(".webmanifest")) res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+        // Built files have a content hash in their name, so they never change.
+        if (file.includes(path.sep + "assets" + path.sep)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      },
+    }),
+  );
   // The portal is a separate page with its own small bundle, so the public never downloads the staff app.
-  app.get([PORTAL_PATH, PORTAL_PATH + "/*"], (_req, res) => res.sendFile(path.join(dist, "portal.html")));
-  app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
+  // The pages themselves are never cached, so a new version is picked up straight away.
+  app.get([PORTAL_PATH, PORTAL_PATH + "/*"], (_req, res) => res.setHeader("Cache-Control", "no-cache").sendFile(path.join(dist, "portal.html")));
+  app.get("*", (_req, res) => res.setHeader("Cache-Control", "no-cache").sendFile(path.join(dist, "index.html")));
 }
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

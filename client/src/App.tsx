@@ -55,9 +55,21 @@ function Home() {
   return first ? <Navigate to={TAB_PATH[first[0]]} replace /> : <Guard tab="brief"><NeedsFocus /></Guard>;
 }
 
+function Offline({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="offline">
+      <img src="/icons/icon-192.png" alt="" />
+      <h1>You're offline</h1>
+      <p>The app can't reach the server. Check your Wi-Fi or mobile data; it reconnects by itself.</p>
+      <button className="cta" onClick={onRetry}>Try again</button>
+    </div>
+  );
+}
+
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, offline, retry } = useAuth();
   if (loading) return null;
+  if (!user && offline) return <Offline onRetry={retry} />;
   if (!user) return <Login />;
   if (user.role === "Tenant") return <Routes><Route path="*" element={<Portal />} /></Routes>;
   return (

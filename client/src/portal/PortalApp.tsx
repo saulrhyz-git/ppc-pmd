@@ -7,6 +7,7 @@ import { Icon, ThemeToggle, initials } from "./bits";
 import { HomePage, RequestsPage } from "./Home";
 import Account from "./Account";
 import MetersPage from "./Meters";
+import { InstallBanner } from "../pwa";
 
 type State = { state: "loading" } | { state: "none" } | { state: "mfa" } | { state: "ok"; me: PortalMeDTO };
 
@@ -79,7 +80,7 @@ function Shell({ me, onLogout, children }: { me: PortalMeDTO; onLogout: () => vo
           <button className="pp-ghost" onClick={onLogout}>Sign out</button>
         </div>
       </header>
-      <main className="pp-main">{children}</main>
+      <main className="pp-main"><InstallBanner appName="My Portal" />{children}</main>
       <nav className="pp-tabbar">{LINKS.map(([to, label, icon]) => <NavLink key={to} to={to} end={to === "/"}><Icon name={icon} />{label}</NavLink>)}</nav>
     </>
   );

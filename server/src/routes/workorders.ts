@@ -1,13 +1,17 @@
 import { Router, type Request } from "express";
+import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import {
   ACTIVITY_TYPES, TRADES, WO_ASSIGNABLE_ROLES, WO_NEEDS_NOTE, WO_PRIORITIES, WO_STATUSES,
   allowedMoves, canAssign, canEditDetails, canEditWorkNotes, scopeFor, woToLegacyRow,
-  type Role, type SessionUser, type WoStatus, type WorkOrderDTO,
+  isWoManager, type Role, type SessionUser, type WoStatus, type WorkOrderDTO,
 } from "@pmd/shared";
 import { prisma, allProperties, audit, scopeOf } from "../db.ts";
 import { HttpError, requireTab, staffOnly } from "../auth.ts";
+import { UPLOAD_DIR, upload } from "./concerns.ts";
+import { sniffFile } from "../portal/security.ts";
 
 export const workOrdersRouter = Router();
 workOrdersRouter.use(staffOnly, requireTab("wos", 1));
@@ -63,6 +67,15 @@ async function load(req: Request, id: string, withEvents = false) {
   return w;
 }
 const ids = (w: WoFull) => w.assignees.map((a) => a.userId);
+
+/** One work order with its history and photos, as sent to the browser. */
+async function full(req: Request, id: string): Promise<WorkOrderDTO> {
+  const dto = toDTO(await load(req, id, true));
+  const atts = await prisma.attachment.findMany({ where: { ownerType: "wo", ownerId: id }, orderBy: { createdAt: "asc" } });
+  const names = Object.fromEntries((await prisma.user.findMany({ where: { id: { in: [...new Set(atts.map((a) => a.createdById))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+  dto.photos = atts.map((a) => ({ id: a.id, filename: a.filename, mime: a.mime, size: a.size, byId: a.createdById, byName: names[a.createdById] ?? "Unknown", createdAt: a.createdAt.toISOString() }));
+  return dto;
+}
 
 export async function nextTicket(tx: Prisma.TransactionClient = prisma) {
   const y = new Date().getFullYear();
@@ -140,7 +153,7 @@ workOrdersRouter.get("/assignees", async (req, res, next) => {
 
 workOrdersRouter.get("/:id", async (req, res, next) => {
   try {
-    res.json(toDTO(await load(req, req.params.id, true)));
+    res.json(await full(req, req.params.id));
   } catch (e) {
     next(e);
   }
@@ -230,7 +243,7 @@ workOrdersRouter.post("/", canWrite, async (req, res, next) => {
       return w;
     });
     await audit(u, "wo.create", { id: created.id, ticket: created.ticket });
-    res.status(201).json(toDTO(await load(req, created.id, true)));
+    res.status(201).json(await full(req, created.id));
   } catch (e) {
     next(e);
   }
@@ -268,7 +281,7 @@ workOrdersRouter.patch("/:id", canWrite, async (req, res, next) => {
       });
       await audit(u, "wo.update", { id: w.id, fields: Object.keys(data) });
     }
-    res.json(toDTO(await load(req, w.id, true)));
+    res.json(await full(req, w.id));
   } catch (e) {
     next(e);
   }
@@ -310,7 +323,7 @@ workOrdersRouter.post("/:id/status", canWrite, async (req, res, next) => {
       await event(tx, w.id, u, "status", { fromStatus: from, toStatus: finalStatus, message: b.note });
     });
     await audit(u, "wo.status", { id: w.id, from, to: finalStatus });
-    res.json(toDTO(await load(req, w.id, true)));
+    res.json(await full(req, w.id));
   } catch (e) {
     next(e);
   }
@@ -342,7 +355,7 @@ workOrdersRouter.put("/:id/assignees", canWrite, async (req, res, next) => {
       });
       await audit(u, "wo.assign", { id: w.id, added, removed });
     }
-    res.json(toDTO(await load(req, w.id, true)));
+    res.json(await full(req, w.id));
   } catch (e) {
     next(e);
   }
@@ -358,9 +371,72 @@ workOrdersRouter.post("/:id/comments", canWrite, async (req, res, next) => {
       await event(tx, w.id, u, "comment", { message });
       await tx.workOrder.update({ where: { id: w.id }, data: { updatedById: u.id } });
     });
-    res.status(201).json(toDTO(await load(req, w.id, true)));
+    res.status(201).json(await full(req, w.id));
   } catch (e) {
     next(e);
   }
 });
 
+
+// ---------- photos ----------
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/gif"];
+const removeFiles = (files: Express.Multer.File[]) => files.forEach((f) => fs.rm(f.path, { force: true }, () => undefined));
+
+workOrdersRouter.post("/:id/photos", canWrite, upload.array("files", 5), async (req, res, next) => {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  try {
+    const u = req.user!;
+    const w = await load(req, req.params.id);
+    if (!files.length) throw new HttpError(400, "Choose a photo (JPEG, PNG, WebP or HEIC)");
+    // Trust the file content, not the name or the browser's label.
+    const kinds = files.map((f) => sniffFile(f.path));
+    if (kinds.some((k) => !k || !PHOTO_TYPES.includes(k))) throw new HttpError(400, "Only photos can be added here (JPEG, PNG, WebP or HEIC)");
+    await prisma.$transaction(async (tx) => {
+      await tx.attachment.createMany({
+        data: files.map((f, i) => ({ ownerType: "wo", ownerId: w.id, filename: f.originalname.slice(0, 200) || "photo", mime: kinds[i]!, size: f.size, storedName: path.basename(f.path), property: w.property, createdById: u.id })),
+      });
+      await event(tx, w.id, u, "edit", { message: files.length === 1 ? "Added a photo" : `Added ${files.length} photos` });
+      await tx.workOrder.update({ where: { id: w.id }, data: { updatedById: u.id } });
+    });
+    await audit(u, "wo.photo.add", { id: w.id, count: files.length });
+    res.status(201).json(await full(req, w.id));
+  } catch (e) {
+    removeFiles(files);
+    next(e);
+  }
+});
+
+workOrdersRouter.get("/:id/photos/:photoId", async (req, res, next) => {
+  try {
+    const w = await load(req, req.params.id); // building permission check
+    const a = await prisma.attachment.findUnique({ where: { id: req.params.photoId } });
+    if (!a || a.ownerType !== "wo" || a.ownerId !== w.id) throw new HttpError(404, "Photo not found");
+    res.setHeader("Content-Type", a.mime);
+    res.setHeader("Content-Disposition", `inline; filename="${a.filename.replace(/["\\\r\n]/g, "_")}"`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'");
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.sendFile(path.join(UPLOAD_DIR, path.basename(a.storedName)));
+  } catch (e) {
+    next(e);
+  }
+});
+
+workOrdersRouter.delete("/:id/photos/:photoId", canWrite, async (req, res, next) => {
+  try {
+    const u = req.user!;
+    const w = await load(req, req.params.id);
+    const a = await prisma.attachment.findUnique({ where: { id: req.params.photoId } });
+    if (!a || a.ownerType !== "wo" || a.ownerId !== w.id) throw new HttpError(404, "Photo not found");
+    if (a.createdById !== u.id && !isWoManager(u.role)) throw new HttpError(403, "Only the person who added a photo or a supervisor can remove it");
+    await prisma.$transaction(async (tx) => {
+      await tx.attachment.delete({ where: { id: a.id } });
+      await event(tx, w.id, u, "edit", { message: `Removed photo ${a.filename}` });
+    });
+    fs.rm(path.join(UPLOAD_DIR, path.basename(a.storedName)), { force: true }, () => undefined);
+    await audit(u, "wo.photo.remove", { id: w.id, photo: a.id });
+    res.json(await full(req, w.id));
+  } catch (e) {
+    next(e);
+  }
+});

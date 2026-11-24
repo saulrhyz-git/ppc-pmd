@@ -83,6 +83,17 @@ export interface WoEventDTO {
   createdAt: string;
 }
 
+/** A photo attached to a work order (before / after shots taken on site). */
+export interface WoPhotoDTO {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  byId: string;
+  byName: string;
+  createdAt: string;
+}
+
 export interface WorkOrderDTO {
   id: string;
   ticket: string;
@@ -122,6 +133,8 @@ export interface WorkOrderDTO {
   createdAt: string;
   updatedAt: string;
   events?: WoEventDTO[];
+  /** Photos, on the single work order response only. */
+  photos?: WoPhotoDTO[];
 }
 
 export const WO_TRADES = TRADES;

@@ -1,0 +1,17 @@
+{
+  "id": "/myportal",
+  "name": "My Portal · PPC Property Management",
+  "short_name": "My Portal",
+  "description": "Report problems in your unit and follow the repair.",
+  "start_url": "/myportal",
+  "scope": "/myportal",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14274e",
+  "theme_color": "#14274e",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PORTAL_PASSWORD_MIN, passwordProblem, type PortalMeDTO, type PortalSessionDTO } from "@pmd/shared";
 import { papi } from "./api";
 import { fmtWhen } from "./bits";
+import { InstallButton, useInstall } from "../pwa";
 
 /** Small helper: runs an async action and keeps its busy / error / done state. */
 function useAction() {
@@ -159,6 +160,16 @@ function Sessions() {
   );
 }
 
+function InstallApp() {
+  const inst = useInstall();
+  if (inst.kind === "none") return null;
+  return (
+    <Section title="App on this phone" sub="Put My Portal on your home screen so it opens full screen, like a normal app.">
+      <InstallButton className="pp-btn" />
+    </Section>
+  );
+}
+
 export default function Account({ me, onChanged }: { me: PortalMeDTO; onChanged: () => void }) {
   return (
     <>
@@ -167,6 +178,7 @@ export default function Account({ me, onChanged }: { me: PortalMeDTO; onChanged:
       <Profile me={me} onChanged={onChanged} />
       <Password me={me} />
       <Sessions />
+      <InstallApp />
     </>
   );
 }

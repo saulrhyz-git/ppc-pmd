@@ -3,14 +3,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ACTIVITY_TYPES, TRADES, WO_NEEDS_NOTE, WO_PRIORITIES, WO_STATUS_NOTES, WO_STATUSES,
   allowedMoves, canAssign, canEditDetails, canEditWorkNotes,
-  type SessionUser, type WoStatus, type WoUserRef, type WorkOrderDTO,
+  isWoManager, type SessionUser, type WoStatus, type WoUserRef, type WorkOrderDTO,
 } from "@pmd/shared";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { useFilter } from "../state";
 import { Card, ErrorBox, Sheet, Table } from "../ui";
 import { fmtDate } from "./common";
+import { usePhone } from "../pwa";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, "-");
 export const StatusPill = ({ s }: { s: string }) => <span className={"pill st-" + slug(s)}>{s}</span>;
@@ -163,6 +164,7 @@ function AssigneePicker({ people, value, onChange }: { people: WoUserRef[]; valu
 // ---------------- detail ----------------
 function StatusActions({ w, onDone }: { w: WorkOrderDTO; onDone: (w: WorkOrderDTO) => void }) {
   const { user } = useAuth();
+  const phone = usePhone();
   const [to, setTo] = useState<WoStatus | null>(null);
   const [note, setNote] = useState("");
   const [err, setErr] = useState("");
@@ -180,15 +182,15 @@ function StatusActions({ w, onDone }: { w: WorkOrderDTO; onDone: (w: WorkOrderDT
   const primary = (s: WoStatus) => ["In Progress", "Completed", "Closed"].includes(s) && !(s === "In Progress" && (w.status === "Completed" || w.status === "Closed"));
   return (
     <div className="card" style={{ background: "var(--bg)" }}>
-      <div className="row">
+      <div className={phone ? "woact" : "row"}>
         {moves.map((s) => (
-          <button key={s} className={"cta sm" + (primary(s) ? "" : " sec")} disabled={move.isPending} onClick={() => { setErr(""); if (WO_NEEDS_NOTE[s] || s === "Closed" || s === "In Progress") setTo(s); else move.mutate(s); }}>{MOVE_LABEL[s](w.status)}</button>
+          <button key={s} className={"cta" + (phone ? "" : " sm") + (primary(s) ? "" : " sec")} disabled={move.isPending} onClick={() => { setErr(""); if (WO_NEEDS_NOTE[s] || s === "Closed" || s === "In Progress") setTo(s); else move.mutate(s); }}>{MOVE_LABEL[s](w.status)}</button>
         ))}
       </div>
       {to && (
         <div style={{ marginTop: 8 }}>
           <p className="mu" style={{ margin: "0 0 4px" }}>{MOVE_LABEL[to](w.status)}: {WO_STATUS_NOTES[to]}</p>
-          <textarea className="in" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={WO_NEEDS_NOTE[to] ? WO_NEEDS_NOTE[to] + " (required)" : "Note (optional)"} autoFocus />
+          <textarea className="in" rows={phone ? 4 : 2} style={{ width: "100%" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder={WO_NEEDS_NOTE[to] ? WO_NEEDS_NOTE[to] + " (required)" : "Note (optional)"} autoFocus />
           <div className="row">
             <button className="lnk" onClick={() => { setTo(null); setNote(""); }}>Back</button>
             <span className="spacer" />
@@ -316,6 +318,83 @@ function History({ w, onDone }: { w: WorkOrderDTO; onDone: (w: WorkOrderDTO) => 
   );
 }
 
+// ---------------- photos ----------------
+/** Shrinks a phone photo (often 4–12 MB) to at most 1600 px before upload, so it goes up quickly on mobile data. */
+async function shrink(f: File): Promise<File> {
+  if (!/^image\/(jpeg|png|webp)$/.test(f.type) || f.size < 600_000) return f;
+  try {
+    const bmp = await createImageBitmap(f, { imageOrientation: "from-image" } as ImageBitmapOptions);
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise<Blob | null>((r) => c.toBlob(r, "image/jpeg", 0.82));
+    return blob && blob.size < f.size ? new File([blob], f.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }) : f;
+  } catch {
+    return f;
+  }
+}
+
+function Photos({ w, onDone }: { w: WorkOrderDTO; onDone: (w: WorkOrderDTO) => void }) {
+  const { user } = useAuth();
+  const [err, setErr] = useState("");
+  const [view, setView] = useState<string | null>(null);
+  const add = useMutation({
+    mutationFn: async (files: File[]) => {
+      const fd = new FormData();
+      for (const f of await Promise.all(files.slice(0, 5).map(shrink))) fd.append("files", f);
+      return api.post<WorkOrderDTO>(`/work-orders/${w.id}/photos`, fd);
+    },
+    onSuccess: (x) => { setErr(""); onDone(x); },
+    onError: (e) => setErr((e as Error).message),
+  });
+  const del = useMutation({
+    mutationFn: (pid: string) => api.del<WorkOrderDTO>(`/work-orders/${w.id}/photos/${pid}`),
+    onSuccess: (x) => { setView(null); onDone(x); },
+    onError: (e) => setErr((e as Error).message),
+  });
+  const photos = w.photos ?? [];
+  const src = (pid: string) => `/api/work-orders/${w.id}/photos/${pid}`;
+  const shown = photos.find((p) => p.id === view);
+  const writable = canWrite(user);
+  if (!photos.length && !writable) return <p className="mu">No photos.</p>;
+  return (
+    <>
+      <div className="wophotos">
+        {photos.map((p) => (
+          <a key={p.id} href={src(p.id)} onClick={(e) => { e.preventDefault(); setView(p.id); }} title={p.filename}>
+            <img src={src(p.id)} alt={p.filename} loading="lazy" />
+            <small>{p.byName.split(" ")[0]} · {when(p.createdAt)}</small>
+          </a>
+        ))}
+        {writable && (
+          <label className="ph-up">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+            {add.isPending ? "Uploading…" : "Add photo"}
+            <input type="file" accept="image/*" multiple disabled={add.isPending} onChange={(e) => { const f = [...(e.target.files ?? [])]; e.target.value = ""; if (f.length) add.mutate(f); }} />
+          </label>
+        )}
+      </div>
+      {err && <p className="err">{err}</p>}
+      {shown && (
+        <div className="ov" style={{ zIndex: 60, alignItems: "center", background: "rgba(0,0,0,.9)" }} onClick={() => setView(null)}>
+          <div style={{ width: "100%", maxWidth: 900, padding: 12 }} onClick={(e) => e.stopPropagation()}>
+            <img src={src(shown.id)} alt={shown.filename} style={{ width: "100%", maxHeight: "75vh", objectFit: "contain", display: "block" }} />
+            <div className="row" style={{ color: "#fff", marginTop: 10 }}>
+              <small>{shown.byName} · {when(shown.createdAt)}</small>
+              <span className="spacer" />
+              {writable && user && (shown.byId === user.id || isWoManager(user.role)) && (
+                <button className="lnk" style={{ color: "#ff8a80" }} disabled={del.isPending} onClick={() => del.mutate(shown.id)}>Remove</button>
+              )}
+              <button className="cta sm" onClick={() => setView(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function WorkOrderSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const { user } = useAuth();
   const q = useWorkOrder(id);
@@ -358,6 +437,8 @@ export function WorkOrderSheet({ id, onClose }: { id: string; onClose: () => voi
               {w.estCost != null && <><dt>Est. cost</dt><dd>{w.estCost.toLocaleString("en-US")}</dd></>}
             </dl>
           )}
+          <h3>Photos</h3>
+          <Photos w={w} onDone={refresh} />
           <h3>Work notes</h3>
           <WorkNotes w={w} onDone={refresh} />
           <h3>History</h3>
@@ -371,10 +452,20 @@ export function WorkOrderSheet({ id, onClose }: { id: string; onClose: () => voi
 // ---------------- list ----------------
 export default function WorkOrders() {
   const { user } = useAuth();
+  const phone = usePhone();
   const { building } = useFilter();
   const [filter, setFilter] = useState<string>(() => sessionStorage.getItem("pmd.woFilter") || (user?.role === "Technician" ? "mine" : "open"));
   const [search, setSearch] = useState("");
-  const [sel, setSel] = useState<string | null>(null);
+  // The open work order is part of the address (?wo=…), so the phone's Back button closes it and links can be shared.
+  const [params0, setParams] = useSearchParams();
+  const loc = useLocation();
+  const navigate = useNavigate();
+  const sel = params0.get("wo");
+  const setSel = (id: string | null) => {
+    if (id) { setParams((p) => { p.set("wo", id); return p; }, { state: { woOpened: true } }); return; }
+    if ((loc.state as { woOpened?: boolean } | null)?.woOpened) navigate(-1);
+    else setParams((p) => { p.delete("wo"); return p; }, { replace: true });
+  };
   const [creating, setCreating] = useState(false);
   const scope = useQuery({ queryKey: ["concern-buildings"], queryFn: () => api.get<string[]>("/concerns/buildings") });
   const params = new URLSearchParams();
@@ -395,7 +486,7 @@ export default function WorkOrders() {
     <>
       <Card
         title="Work orders"
-        sub={user?.role === "Technician" ? "Work orders in your buildings. Start, pause and complete the ones assigned to you; a supervisor verifies and closes them." : "Every work order with its status and who is working on it. Supervisors assign, verify and close; technicians start, pause and complete their own."}
+        sub={phone ? undefined : user?.role === "Technician" ? "Work orders in your buildings. Start, pause and complete the ones assigned to you; a supervisor verifies and closes them." : "Every work order with its status and who is working on it. Supervisors assign, verify and close; technicians start, pause and complete their own."}
         right={canWrite(user) && buildings.length ? <button className="cta sm" onClick={() => setCreating(true)}>+ New work order</button> : null}
       >
         <div className="tabs">{FILTERS.map(([k, l]) => <button key={k} className={filter === k ? "on" : ""} onClick={() => pick(k)}>{l}</button>)}</div>

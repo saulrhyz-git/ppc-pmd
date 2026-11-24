@@ -6,6 +6,9 @@ import { PORTAL_PATH } from "@pmd/shared";
 import "../index.css";
 import "./portal.css";
 import PortalApp from "./PortalApp.tsx";
+import { UpdateBanner, startPwa } from "../pwa.tsx";
+
+startPwa();
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 20_000, retry: (n, e) => n < 1 && (e as { status?: number }).status !== 401 && (e as { status?: number }).status !== 404 } } });
 
@@ -14,6 +17,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={qc}>
       <BrowserRouter basename={PORTAL_PATH}>
         <PortalApp />
+        <UpdateBanner />
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

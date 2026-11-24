@@ -74,3 +74,81 @@ label.chk{gap:4px;margin-right:10px;font-size:14px}
 .toolbar select,.cfgbody .row>select.in{flex:0 1 auto;width:auto}
 /* daily round: meters side by side on wide screens instead of one long stretched column */
 .ergrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:0 10px}@media(max-width:719px){.ergrid{display:block}}
+/* ---- phones: native-style layout (html.phone is set by pwa.tsx) ---- */
+html.phone{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}html.phone:has(.ph),html.phone:has(.pp){padding-top:0}
+html.phone body{overscroll-behavior-y:none}
+body.noscroll{overflow:hidden}
+.ph-top{position:sticky;top:0;z-index:15;display:flex;align-items:center;gap:10px;background:var(--navy);color:#fff;padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;min-height:56px}
+.ph-title{flex:1;min-width:0;display:flex;flex-direction:column}
+.ph-title b{font-size:18px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ph-bld{background:none;border:0;color:#ffd7bd;font-size:13px;padding:2px 0;text-align:left;cursor:pointer;min-height:0!important}
+.ph-av{width:38px;height:38px;border-radius:50%;background:var(--or);color:#fff;border:0;font-weight:700;font-size:14px;flex:none;cursor:pointer;min-height:0!important}
+.ph-main{padding:12px 12px calc(84px + env(safe-area-inset-bottom,0px))}
+.ph-main>.card:first-child,.ph-main>.pwa-banner+.card{margin-top:0}
+.ph-tabs{position:fixed;left:0;right:0;bottom:0;z-index:25;display:grid;grid-template-columns:repeat(5,1fr);background:var(--card);border-top:1px solid var(--ln);padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));box-shadow:0 -4px 16px rgba(10,20,40,.08);user-select:none;-webkit-user-select:none}
+.ph-tabs a,.ph-tabs button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;background:none;border:0;color:var(--mu);font-size:11px;font-weight:600;text-decoration:none;border-radius:12px;cursor:pointer;padding:4px 0}
+.ph-tabs .ni{width:24px;height:24px}
+.ph-tabs .on{color:var(--or)}
+.ph-tabs .on .ni{stroke-width:2.2}
+.ph-more-ov{position:fixed;inset:0;z-index:30;background:rgba(10,20,40,.5);display:flex;align-items:flex-end;animation:phfade .15s ease-out}
+.ph-more{background:var(--card);color:var(--tx);width:100%;max-height:88vh;overflow:auto;border-radius:20px 20px 0 0;padding:8px 16px calc(16px + env(safe-area-inset-bottom,0px));animation:phup .2s ease-out}
+.ph-grab{width:40px;height:5px;border-radius:3px;background:var(--ln);margin:0 auto 10px}
+.ph-me{display:flex;align-items:center;gap:12px;padding:6px 0 12px;border-bottom:1px solid var(--ln)}
+.ph-me .av{width:44px;height:44px;border-radius:50%;background:var(--or);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.ph-me b{display:block}.ph-me small{color:var(--mu)}
+.ph-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--ln)}
+.ph-row>span{font-weight:600}.ph-row select{flex:0 1 60%}
+.ph-row .thm{border-color:var(--ln);color:var(--tx);min-height:40px;padding:6px 14px}
+.ph-install{justify-content:stretch}.ph-install:empty{display:none}.ph-install>*{flex:1}
+.ph-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 0;border-bottom:1px solid var(--ln)}
+.ph-grid button{display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--ln);border-radius:14px;padding:12px 6px;color:var(--tx);font-size:12px;font-weight:600;line-height:1.2;text-align:center;cursor:pointer;min-height:84px}
+.ph-grid button .ni{width:24px;height:24px;color:var(--navy)}
+.ph-grid button.on{border-color:var(--or);color:var(--or)}.ph-grid button.on .ni{color:var(--or)}
+.ph-out{width:100%;margin-top:12px;background:none;border:1px solid var(--r);color:var(--r);border-radius:12px;padding:12px;font-size:15px;font-weight:600;cursor:pointer}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .ph-grid button .ni{color:#b9c3dc}}
+:root[data-theme="dark"] .ph-grid button .ni{color:#b9c3dc}
+@keyframes phup{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes phfade{from{opacity:0}to{opacity:1}}
+/* phones: comfortable touch targets, no zoom-on-focus (iOS zooms inputs under 16px), full-screen detail sheets */
+html.phone .ph button,html.phone .ph select,html.phone .ph input:not([type=checkbox]):not([type=radio]):not([type=file]),html.phone .ov button{min-height:44px}
+html.phone .ph button.lnk,html.phone .ov button.lnk{min-height:36px}
+html.phone input,html.phone select,html.phone textarea{font-size:16px!important}
+html.phone .cta.sm{padding:10px 14px;font-size:15px;border-radius:12px}
+html.phone .tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+html.phone .tabs::-webkit-scrollbar{display:none}
+html.phone .tabs button{flex:none;padding:8px 14px;font-size:14px;min-height:38px}
+html.phone .card{border-radius:14px}
+html.phone .ov{align-items:stretch;z-index:40}
+html.phone .sheet{max-width:none;max-height:none;height:100%;border-radius:0;padding:0 14px calc(24px + env(safe-area-inset-bottom,0px));overscroll-behavior:contain;animation:phslide .2s ease-out}
+html.phone .sheet>.sh{position:sticky;top:0;z-index:2;background:var(--card);margin:0 -14px 10px;padding:calc(12px + env(safe-area-inset-top,0px)) 14px 10px;border-bottom:1px solid var(--ln);align-items:center;gap:10px}
+html.phone .sheet>.sh h2{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html.phone .kv{grid-template-columns:minmax(96px,34%) 1fr}
+@keyframes phslide{from{transform:translateX(30px);opacity:.5}to{transform:none;opacity:1}}
+html.phone .woc{padding:12px;border-radius:12px}
+html.phone .woc:active{background:var(--ln)}
+/* install banner and "new version" notice (staff app and My Portal) */
+.pwa-banner{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--ln);border-left:4px solid var(--or);border-radius:14px;padding:10px 10px 10px 12px;margin-bottom:12px}
+.pwa-banner img{width:40px;height:40px;border-radius:10px;flex:none}
+.pwa-banner div{flex:1;min-width:0;font-size:13px;line-height:1.35}.pwa-banner div b{display:block;font-size:14px}.pwa-banner div span{color:var(--mu)}
+.pwa-go{background:var(--or);color:#fff;border:0;border-radius:10px;padding:8px 14px;font-weight:600;font-size:14px;cursor:pointer}
+.pwa-x{background:none;border:0;color:var(--mu);font-size:16px;cursor:pointer;padding:6px;min-height:0!important}
+.pwa-update{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:50;display:flex;align-items:center;gap:10px;background:var(--navy);color:#fff;border-radius:14px;padding:10px 12px 10px 16px;box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:14px;max-width:520px;margin:0 auto}
+.pwa-update span{flex:1}.pwa-update button{background:var(--or);color:#fff;border:0;border-radius:10px;padding:8px 14px;font-weight:600;cursor:pointer}
+html:not(.phone) .pwa-update{bottom:20px}
+/* work order photos */
+.wophotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px;margin:6px 0}
+.wophotos a,.wophotos .ph-up{aspect-ratio:1;border-radius:10px;overflow:hidden;background:var(--bg);border:1px solid var(--ln);display:block;position:relative}
+.wophotos img{width:100%;height:100%;object-fit:cover;display:block}
+.wophotos small{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.6));color:#fff;font-size:10px;padding:10px 5px 3px}
+.ph-up{display:flex!important;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--or);font-weight:600;font-size:13px;cursor:pointer;border-style:dashed!important}
+.ph-up input{display:none}
+/* technician quick-action bar inside a work order on phones */
+.woact{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.woact .cta{width:100%;min-height:50px;font-size:16px}
+.woact .cta:only-child{grid-column:1/-1}
+/* the desktop side menu's generic "nav" rules must not apply to the phone tab bar */
+.ph nav.ph-tabs{position:fixed;top:auto;left:0;right:0;bottom:0;width:auto;max-width:none;height:auto;transform:none;transition:none;flex-direction:row;overflow:visible;border-top:1px solid var(--ln);background:var(--card);display:grid;padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));box-shadow:0 -4px 16px rgba(10,20,40,.08)}
+.offline{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:var(--navy);color:#fff}
+.offline img{width:72px;height:72px;border-radius:18px}.offline h1{font-size:20px;margin:16px 0 6px}.offline p{color:#b9c3dc;margin:0 0 20px;max-width:340px}
+.ph-tabs a,.ph-tabs button{font-family:inherit;line-height:1.2}.ph-tabs a span,.ph-tabs button span{display:block}
+.ph nav.ph-tabs button{gap:3px;border-left:0;padding:4px 0;flex-direction:column;justify-content:center;text-align:center;width:auto}
