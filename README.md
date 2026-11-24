@@ -119,7 +119,11 @@ Demo accounts (password `ChangeMe123!`, or `SEED_PASSWORD` if you set it):
 | sup.commercial@example.com, sup.industrial@example.com, sup.residential@example.com | Supervisor |
 | eng1@example.com, eng2@example.com, eng3@example.com | Admin/Engineer |
 | tech1@example.com (Tower A, Plaza B), tech2@example.com (Annex C, Court D, Hall E) | Technician |
-| tenant@example.com | Tenant (Acme Corp, Tower A) |
+| tenant@example.com | Legacy tenant sign-in on the staff page (Acme Corp, Tower A) |
+
+My Portal demo accounts (sign in at `/myportal`, same password): `tenant@example.com` (Acme Corp, tenant of the first
+Tower A unit) and `owner@example.com` (Olivia Reyes, owner of the first Court D unit). These are separate from the
+staff accounts above. Re-run `npm run db:seed` on an existing development database to add them.
 
 ## Deploy to the local server
 

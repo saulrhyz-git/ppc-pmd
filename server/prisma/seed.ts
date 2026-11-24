@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { defaultTabs, legacyRowToWo, sampleRows, SAMPLE_PROPERTIES, type Role } from "@pmd/shared";
 
 import { seedAssets } from "./seed-assets.ts";
+import { seedPortal } from "./seed-portal.ts";
 
 const prisma = new PrismaClient();
 
@@ -48,6 +49,7 @@ async function main() {
   }
   if (sample && (await prisma.workOrder.count()) === 0) await seedWorkOrders(woRows, asOf, dh.id);
   if (sample) await seedAssets(prisma, asOf);
+  if (sample) await seedPortal(prisma, hash);
   console.log(`Seed complete. Demo users sign in with password: ${process.env.SEED_PASSWORD ? "(SEED_PASSWORD)" : password}`);
 }
 
