@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Kpi, Level, PropertyResult } from "@pmd/shared";
 
 export const LBL: Record<Level, string> = { r: "Red", a: "Amber", g: "Green" };
@@ -120,3 +120,25 @@ export function Legend({ items }: { items: [Level | "n", string][] }) {
 
 export const Loading = () => <div className="card"><p className="mu">Loading…</p></div>;
 export const ErrorBox = ({ error }: { error: unknown }) => <div className="card"><p className="err">{error instanceof Error ? error.message : "Something went wrong"}</p></div>;
+
+/**
+ * A "danger zone" for deleting something: opens a box that explains what happens and only enables
+ * the final button once the person types DELETE.
+ */
+export function DeleteConfirm({ label, explain, busy, error, onConfirm }: { label: string; explain: ReactNode; busy?: boolean; error?: string; onConfirm: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  if (!open) return <button className="lnk" style={{ color: "var(--r)" }} onClick={() => setOpen(true)}>{label}</button>;
+  return (
+    <div className="card" style={{ borderColor: "var(--r)", margin: "10px 0" }}>
+      <b style={{ color: "var(--r)" }}>{label}</b>
+      <div className="mu" style={{ margin: "6px 0" }}>{explain}</div>
+      <label className="ff"><span className="mu">Type DELETE to confirm</span><input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" /></label>
+      <div className="row">
+        <button className="cta sm" style={{ background: "var(--r)" }} disabled={busy || typed.trim().toUpperCase() !== "DELETE"} onClick={onConfirm}>{busy ? "Deleting…" : "Delete permanently"}</button>
+        <button className="lnk" onClick={() => { setOpen(false); setTyped(""); }}>Cancel</button>
+      </div>
+      {error && <p className="err">{error}</p>}
+    </div>
+  );
+}

@@ -109,6 +109,7 @@ portalAdminRouter.get("/accounts", async (req, res, next) => {
     const unitFilter: Prisma.UnitWhereInput = { property: { name: { in: props } }, ...(q.unitId ? { id: q.unitId } : {}) };
     const where: Prisma.PortalAccountWhereInput = {
       AND: [
+        { NOT: { email: { endsWith: "@deleted.invalid" } } },
         seesEverything(req) && !q.unitId && !q.property ? {} : { access: { some: { unit: unitFilter } } },
         q.q ? { OR: [{ email: { contains: q.q, mode: "insensitive" } }, { name: { contains: q.q, mode: "insensitive" } }] } : {},
       ],
@@ -204,6 +205,32 @@ accountAction("sign-out", (id) => revokeAll(id));
 accountAction("reset-mfa", async (id) => {
   await prisma.portalAccount.update({ where: { id }, data: { mfaEnabled: false, mfaSecret: null, mfaLastStep: null, recoveryCodes: [] } });
   await revokeAll(id);
+});
+
+/**
+ * Deletes a portal account (Department Head only). Unit access, links and sign-ins go;
+ * the row stays, anonymised, so the person's past requests and messages keep their name.
+ */
+portalAdminRouter.delete("/accounts/:id", canWrite, async (req, res, next) => {
+  try {
+    if (req.user!.role !== "Department Head") throw new HttpError(403, "Only a Department Head can delete portal accounts");
+    const { a } = await loadAccount(req, req.params.id);
+    if (a.email.endsWith("@deleted.invalid")) throw new HttpError(404, "Portal account not found");
+    const requests = await prisma.concern.count({ where: { portalAccountId: a.id } });
+    await prisma.$transaction([
+      prisma.portalUnitAccess.deleteMany({ where: { accountId: a.id } }),
+      prisma.portalToken.deleteMany({ where: { accountId: a.id } }),
+      prisma.portalSession.deleteMany({ where: { accountId: a.id } }),
+      prisma.portalAccount.update({
+        where: { id: a.id },
+        data: { name: `${a.name} (deleted)`, email: `deleted+${a.id}@deleted.invalid`, phone: "", active: false, passwordHash: null, mfaEnabled: false, mfaSecret: null, mfaLastStep: null, recoveryCodes: [], failedLogins: 0, lockedUntil: null },
+      }),
+    ]);
+    await audit(req.user!, "portal.account.delete", { accountId: a.id, email: a.email, name: a.name, units: a.access.map((x) => `${x.unit.property.name} ${x.unit.code}`), requests });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
 });
 
 // ---------- unit access ----------

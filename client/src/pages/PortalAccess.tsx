@@ -1,11 +1,11 @@
 // Staff screen: invite unit owners and tenants to the owner / tenant portal and manage their access.
 import { useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PORTAL_RELATIONS, PORTAL_RELATION_NOTES, type PortalAccessDTO, type PortalAccountAdminDTO, type PortalLinkDTO, type PortalRelation } from "@pmd/shared";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Card, Sheet, Table } from "../ui";
+import { Card, DeleteConfirm, Sheet, Table } from "../ui";
 import { fmtDate } from "./common";
 
 interface UnitRow { id: string; code: string; kind: string; floor: string; building: string; occupancy: string; ownerName: string; tenantName: string; status: string; portalAccounts: number }
@@ -54,7 +54,17 @@ function InviteSheet({ units, unitId, onClose }: { units: UnitRow[]; unitId: str
   const submit = (e: FormEvent) => { e.preventDefault(); setErr(""); m.mutate(); };
   return (
     <Sheet title="Invite to the portal" onClose={onClose}>
-      {res ? (
+      {!units.length ? (
+        <>
+          <p><b>Add a unit first.</b> Every portal user is linked to the unit or space they own or lease, so the building needs at least one unit before you can invite anyone.</p>
+          <ol>
+            <li>Open <Link to="/configuration?s=units">Configuration → Units &amp; spaces</Link>.</li>
+            <li>Add the unit (for example 12-03 or GF-05) in its building.</li>
+            <li>Come back here and press “+ Invite portal user”.</li>
+          </ol>
+          <Link className="cta" to="/configuration?s=units" style={{ display: "inline-block", textDecoration: "none" }}>Go to Units &amp; spaces</Link>
+        </>
+      ) : res ? (
         <>
           <p><b>{res.account.name}</b> ({res.account.email}) now has access to the unit.</p>
           {res.link ? <LinkBox link={res.link} purpose="invite" /> : <p className="mu">They already have a portal account, so no new link is needed. The unit appears the next time they open the portal.</p>}
@@ -130,6 +140,13 @@ function AccountSheet({ initial, canWrite, onClose }: { initial: PortalAccountAd
     onSuccess: setLink, onError: (e) => setErr((e as Error).message),
   });
   const confirmAct = (name: string, q: string) => window.confirm(q) && act.mutate(name);
+  const { user } = useAuth();
+  const [delErr, setDelErr] = useState("");
+  const del = useMutation({
+    mutationFn: () => api.del(`/portal-admin/accounts/${a.id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["portal-admin"] }); onClose(); },
+    onError: (e) => setDelErr((e as Error).message),
+  });
   return (
     <Sheet title={a.name} onClose={onClose}>
       <p><span className={"pill " + stateLevel(a.state)}>{a.state}</span> <span className="mu">{a.email}{a.phone ? " · " + a.phone : ""}</span></p>
@@ -149,6 +166,12 @@ function AccountSheet({ initial, canWrite, onClose }: { initial: PortalAccountAd
       {err && <p className="err">{err}</p>}
       <h3>Units</h3>
       {a.access.length ? a.access.map((x) => <AccessRow key={x.id} x={x} canWrite={canWrite} onSaved={saved} />) : <p className="mu">No units in your buildings.</p>}
+      {canWrite && user?.role === "Department Head" && (
+        <div style={{ marginTop: 18, paddingTop: 10, borderTop: "1px solid var(--ln)" }}>
+          <DeleteConfirm label="Delete portal account" busy={del.isPending} error={delErr} onConfirm={() => del.mutate()}
+            explain={<>{a.name} is signed out at once, loses access to every unit and can no longer sign in. Requests they filed stay in Concerns, shown as “{a.name} (deleted)”. Their email can be invited again later as a new account. This cannot be undone. To block them for a while, use Disable account instead.</>} />
+        </div>
+      )}
     </Sheet>
   );
 }
@@ -173,7 +196,7 @@ export default function PortalAccess() {
   return (
     <>
       <Card title="My Portal (owners & tenants)" sub="Invite unit owners, tenants and their representatives. They sign in at /myportal on this site with their own password (and optional two-step code), and only see the units you give them. Their job requests arrive in the Concerns inbox."
-        right={canWrite && shownUnits.length > 0 && <button className="cta sm" onClick={() => setInviting(true)}>+ Invite</button>}>
+        right={canWrite && <button className="cta sm" onClick={() => setInviting(true)}>+ Invite portal user</button>}>
         <div className="bar">
           <select value={building} onChange={(e) => { setBuilding(e.target.value); setParams({}); }}>
             <option value="">All my buildings</option>
@@ -196,7 +219,7 @@ export default function PortalAccess() {
           </Table>
         )}
       </Card>
-      <Card title="Units" sub={!units.isLoading && !shownUnits.length ? "No units are set up for your buildings yet. Add them under Configuration, Units & spaces." : undefined}>
+      <Card title="Units" sub={!units.isLoading && !shownUnits.length ? <>No units are set up for {building || "your buildings"} yet. Portal users are linked to a unit, so add the units first under <Link to="/configuration?s=units">Configuration → Units &amp; spaces</Link>.</> : undefined}>
         {shownUnits.length > 0 && (
           <Table head={["Building", "Unit", "Kind", "Occupancy", "Owner / tenant on file", "Portal accounts"]}>
             {shownUnits.map((u) => (

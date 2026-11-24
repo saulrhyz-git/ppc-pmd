@@ -1,7 +1,8 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { defaultTabs, mergeThresholds, ROLES, TABS, type Role } from "@pmd/shared";
+import { randomBytes } from "node:crypto";
+import { defaultTabs, mergeThresholds, ROLES, TABS, WO_OPEN, type Role } from "@pmd/shared";
 import { prisma, allProperties, audit, getAsOf, getThresholds, setSetting } from "../db.ts";
 import { HttpError, requireAuth, requireRole, toSessionUser } from "../auth.ts";
 
@@ -34,11 +35,14 @@ const userBody = z.object({
   password: z.string().min(8, "Password must be at least 8 characters").optional(),
 });
 
+/** Deleted users keep their row (so work orders, readings and history still show who did what) under this email domain. */
+const DELETED_DOMAIN = "@deleted.invalid";
+
 const publicUser = (u: Parameters<typeof toSessionUser>[0] & { active: boolean; lastLoginAt: Date | null }) => ({ ...toSessionUser(u), active: u.active, lastLoginAt: u.lastLoginAt });
 
 adminRouter.get("/users", DH, async (_req, res, next) => {
   try {
-    const users = await prisma.user.findMany({ orderBy: [{ role: "asc" }, { name: "asc" }] });
+    const users = await prisma.user.findMany({ where: { NOT: { email: { endsWith: DELETED_DOMAIN } } }, orderBy: [{ role: "asc" }, { name: "asc" }] });
     res.json(users.map(publicUser));
   } catch (e) {
     next(e);
@@ -68,6 +72,43 @@ adminRouter.put("/users/:id", DH, async (req, res, next) => {
     if (!u.active || b.password) await prisma.$executeRawUnsafe(`DELETE FROM "session" WHERE sess->>'userId' = $1`, u.id).catch(() => undefined);
     await audit(req.user!, "user.update", { id: u.id, changes: { role: [old.role, u.role], active: [old.active, u.active], passwordReset: !!b.password } });
     res.json(publicUser(u));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Deletes a staff user. The row is kept but anonymised and locked out for good, so history
+ * (work orders, meter readings, concern updates) still reads "<name> (deleted)" instead of losing the author.
+ */
+adminRouter.delete("/users/:id", DH, async (req, res, next) => {
+  try {
+    const old = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!old || old.email.endsWith(DELETED_DOMAIN)) throw new HttpError(404, "User not found");
+    if (old.id === req.user!.id) throw new HttpError(400, "You cannot delete your own account");
+    if (old.role === "Department Head") {
+      const others = await prisma.user.count({ where: { id: { not: old.id }, role: "Department Head", active: true, NOT: { email: { endsWith: DELETED_DOMAIN } } } });
+      if (!others) throw new HttpError(400, "This is the last active Department Head. Make someone else Department Head first.");
+    }
+    const unassigned = await prisma.$transaction(async (tx) => {
+      // Take them off work orders that are still open, and note it in each work order's history.
+      const open = await tx.workOrderAssignee.findMany({ where: { userId: old.id, workOrder: { status: { in: [...WO_OPEN] } } }, select: { workOrderId: true } });
+      for (const { workOrderId } of open) {
+        await tx.workOrderAssignee.delete({ where: { workOrderId_userId: { workOrderId, userId: old.id } } });
+        await tx.workOrderEvent.create({ data: { workOrderId, authorId: req.user!.id, kind: "assign", message: `Unassigned ${old.name} (user deleted)`, detail: { removed: [old.id] } } });
+      }
+      await tx.user.update({
+        where: { id: old.id },
+        data: {
+          name: `${old.name} (deleted)`, email: `deleted+${old.id}${DELETED_DOMAIN}`, active: false, canApprove: false, properties: [], section: null, tabs: {},
+          passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 4), failedLogins: 0, lockedUntil: null,
+        },
+      });
+      return open.length;
+    });
+    await prisma.$executeRawUnsafe(`DELETE FROM "session" WHERE sess->>'userId' = $1`, old.id).catch(() => undefined);
+    await audit(req.user!, "user.delete", { id: old.id, email: old.email, name: old.name, role: old.role, unassignedOpenWorkOrders: unassigned });
+    res.json({ ok: true, unassignedOpenWorkOrders: unassigned });
   } catch (e) {
     next(e);
   }

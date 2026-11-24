@@ -5,7 +5,7 @@ import { defaultTabs, ROLE_NOTES, ROLES, TABS, THRESHOLD_LABELS, type Role, type
 import { api, type AdminUser } from "../api";
 import { useMeta } from "../state";
 import { useAuth } from "../auth";
-import { Card, Sheet, Table } from "../ui";
+import { Card, DeleteConfirm, Sheet, Table } from "../ui";
 
 function Fold({ title, children, open: o = false }: { title: string; children: ReactNode; open?: boolean }) {
   const [open, setOpen] = useState(o);
@@ -32,6 +32,13 @@ function UserForm({ u, onClose }: { u: Draft; onClose: () => void }) {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["users"] }); onClose(); },
     onError: (e) => setErr((e as Error).message),
+  });
+  const { user: me } = useAuth();
+  const [delErr, setDelErr] = useState("");
+  const del = useMutation({
+    mutationFn: () => api.del(`/users/${f.id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["users"] }); onClose(); },
+    onError: (e) => setDelErr((e as Error).message),
   });
   const needsProps = f.role === "Admin/Engineer" || f.role === "Technician" || f.role === "Tenant";
   return (
@@ -72,6 +79,12 @@ function UserForm({ u, onClose }: { u: Draft; onClose: () => void }) {
       <label className="ff"><span className="mu">{f.id ? "Reset password (leave blank to keep)" : "Starting password (at least 8 characters)"}</span><input type="password" autoComplete="new-password" value={f.password ?? ""} onChange={(e) => set("password", e.target.value)} /></label>
       <button className="cta" disabled={m.isPending} onClick={() => m.mutate()}>{m.isPending ? "Saving…" : "Save"}</button>
       {err && <p className="err">{err}</p>}
+      {f.id && f.id !== me?.id && (
+        <div style={{ marginTop: 18, paddingTop: 10, borderTop: "1px solid var(--ln)" }}>
+          <DeleteConfirm label="Delete this user" busy={del.isPending} error={delErr} onConfirm={() => del.mutate()}
+            explain={<>{u.name} can no longer sign in and is removed from the user list and from open work orders. Past work orders, readings and notes keep their name, shown as “{u.name} (deleted)”. This cannot be undone. To block sign-in only for a while, untick Active instead.</>} />
+        </div>
+      )}
     </Sheet>
   );
 }
