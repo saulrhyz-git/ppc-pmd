@@ -444,8 +444,17 @@ data.get("/meters", async (req, res, next) => {
       prisma.meterReading.findMany({ where: { meterId: { in: ids }, voidedAt: null, readingDate: { gte: new Date(histFrom), lte: new Date(today) } }, select: { id: true, meterId: true, readingDate: true, value: true } }),
       prisma.meterEvent.findMany({ where: { meterId: { in: ids }, date: { gte: new Date(histFrom), lte: new Date(today) } }, select: { meterId: true, date: true, type: true, prevReading: true, newReading: true } }),
     ]);
-    const readings: EngineReading[] = rows.map((r) => ({ id: r.id, meterId: r.meterId, date: isoDay(r.readingDate), value: Number(r.value) }));
-    const events: EngineEvent[] = evs.map((e) => ({ meterId: e.meterId, date: isoDay(e.date), type: e.type, prevReading: e.prevReading == null ? null : Number(e.prevReading), newReading: e.newReading == null ? null : Number(e.newReading) }));
+    // Each unit's readings start at the access's "readings from" day (e.g. move-in); null = full history.
+    const startOf = new Map<string, string | null>();
+    for (const a of access) {
+      const s = a.readingsFrom ? isoDay(a.readingsFrom) : null;
+      const cur = startOf.get(a.unitId);
+      startOf.set(a.unitId, cur === null || s === null ? null : cur === undefined || s < cur ? s : cur);
+    }
+    const meterStart = new Map(meters.map((m) => [m.id, startOf.get(m.unitId!) ?? null]));
+    const visible = (meterId: string, d: string) => { const s = meterStart.get(meterId); return !s || d >= s; };
+    const readings: EngineReading[] = rows.filter((r) => visible(r.meterId, isoDay(r.readingDate))).map((r) => ({ id: r.id, meterId: r.meterId, date: isoDay(r.readingDate), value: Number(r.value) }));
+    const events: EngineEvent[] = evs.filter((e) => visible(e.meterId, isoDay(e.date))).map((e) => ({ meterId: e.meterId, date: isoDay(e.date), type: e.type, prevReading: e.prevReading == null ? null : Number(e.prevReading), newReading: e.newReading == null ? null : Number(e.newReading) }));
     const em: EngineMeter[] = meters.map((m) => ({
       id: m.id, code: m.code, meterClass: "Tenant", multiplier: Number(m.multiplier), rolloverAt: m.rolloverAt == null ? null : Number(m.rolloverAt),
       expectedDaily: m.expectedDaily, activeFrom: isoDay(m.activeFrom), activeTo: m.activeTo ? isoDay(m.activeTo) : null, propertyId: m.propertyId,
@@ -463,7 +472,7 @@ data.get("/meters", async (req, res, next) => {
         .map((x) => { const iv = byReading.get(x.id); return { date: x.date, value: x.value, use: iv ? iv.use : null, days: iv ? iv.days : null }; });
       return {
         id: m.id, code: m.code, unitId: m.unitId!, unitCode: m.unit!.code, building: m.unit!.property.name,
-        utility: m.utility, unitOfMeasure: m.unitOfMeasure, location: m.location,
+        utility: m.utility, unitOfMeasure: m.unitOfMeasure, location: m.location, readingsFrom: meterStart.get(m.id) ?? null,
         last: r.last, monthToDate: mtd, lastMonthSameDays: same,
         changePct: same > 0 ? Math.round(((mtd - same) / same) * 1000) / 10 : null,
         months: months.map((mo) => {

@@ -135,6 +135,8 @@ export interface PortalAccessDTO {
   canRequest: boolean;
   seeAllRequests: boolean;
   endsOn: string | null;
+  /** First meter-reading date the person sees for this unit; null = full history. */
+  readingsFrom: string | null;
   revokedAt: string | null;
   grantedByName: string | null;
   createdAt: string;
@@ -169,6 +171,8 @@ export interface PortalMeterDTO {
   utility: string;
   unitOfMeasure: string;
   location: string;
+  /** Readings before this day are not shown (set by property management); null = full history. */
+  readingsFrom: string | null;
   /** Latest valid reading. */
   last: { date: string; value: number } | null;
   /** Use from the 1st of this month to the latest reading date. */

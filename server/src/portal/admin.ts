@@ -31,7 +31,7 @@ function toDTO(a: AccountFull, scope: Set<string>): PortalAccountAdminDTO {
     access: a.access.filter((x) => scope.has(x.unit.property.name)).map((x) => ({
       id: x.id, unitId: x.unitId, unitCode: x.unit.code, building: x.unit.property.name, relation: x.relation as PortalAccountAdminDTO["access"][number]["relation"],
       canRequest: x.canRequest, seeAllRequests: x.seeAllRequests, endsOn: x.endsOn ? x.endsOn.toISOString().slice(0, 10) : null,
-      revokedAt: x.revokedAt?.toISOString() ?? null, grantedByName: x.grantedByName, createdAt: x.createdAt.toISOString(),
+      readingsFrom: x.readingsFrom ? x.readingsFrom.toISOString().slice(0, 10) : null, revokedAt: x.revokedAt?.toISOString() ?? null, grantedByName: x.grantedByName, createdAt: x.createdAt.toISOString(),
     })),
   };
 }
@@ -82,6 +82,7 @@ const accessFields = {
   canRequest: z.boolean().default(true),
   seeAllRequests: z.boolean().optional(),
   endsOn: day.nullable().optional(),
+  readingsFrom: day.nullable().optional(),
 };
 
 // ---------- read ----------
@@ -138,14 +139,15 @@ portalAdminRouter.post("/invite", canWrite, async (req, res, next) => {
     if (!a) a = await prisma.portalAccount.create({ data: { email: b.email, name: b.name, phone: b.phone, createdById: u.id } });
     const seeAll = b.seeAllRequests ?? b.relation === "Owner";
     const endsOn = b.endsOn ? new Date(b.endsOn + "T00:00:00Z") : null;
+    const readingsFrom = b.readingsFrom ? new Date(b.readingsFrom + "T00:00:00Z") : null;
     await prisma.portalUnitAccess.upsert({
       where: { accountId_unitId: { accountId: a.id, unitId: unit.id } },
-      create: { accountId: a.id, unitId: unit.id, relation: b.relation, canRequest: b.canRequest, seeAllRequests: seeAll, endsOn, grantedById: u.id, grantedByName: u.name },
-      update: { relation: b.relation, canRequest: b.canRequest, seeAllRequests: seeAll, endsOn, revokedAt: null, grantedById: u.id, grantedByName: u.name },
+      create: { accountId: a.id, unitId: unit.id, relation: b.relation, canRequest: b.canRequest, seeAllRequests: seeAll, endsOn, readingsFrom, grantedById: u.id, grantedByName: u.name },
+      update: { relation: b.relation, canRequest: b.canRequest, seeAllRequests: seeAll, endsOn, readingsFrom, revokedAt: null, grantedById: u.id, grantedByName: u.name },
     });
     // People who already set a password just get the new unit; new people get a link.
     const link = a.passwordHash ? null : await issueLink(req, a.id, "invite");
-    await audit(u, "portal.invite", { accountId: a.id, email: a.email, unit: `${unit.property.name} ${unit.code}`, relation: b.relation, linkIssued: !!link });
+    await audit(u, "portal.invite", { accountId: a.id, email: a.email, unit: `${unit.property.name} ${unit.code}`, relation: b.relation, readingsFrom: b.readingsFrom ?? null, linkIssued: !!link });
     const { a: full, scope } = await loadAccount(req, a.id);
     res.status(201).json({ account: toDTO(full, scope), link });
   } catch (e) {
@@ -236,9 +238,9 @@ portalAdminRouter.delete("/accounts/:id", canWrite, async (req, res, next) => {
 // ---------- unit access ----------
 portalAdminRouter.patch("/access/:id", canWrite, async (req, res, next) => {
   try {
-    const b = z.object({ relation: accessFields.relation, canRequest: z.boolean(), seeAllRequests: z.boolean(), endsOn: day.nullable() }).parse(req.body);
+    const b = z.object({ relation: accessFields.relation, canRequest: z.boolean(), seeAllRequests: z.boolean(), endsOn: day.nullable(), readingsFrom: day.nullable().default(null) }).parse(req.body);
     const x = await loadAccess(req, req.params.id);
-    await prisma.portalUnitAccess.update({ where: { id: x.id }, data: { ...b, endsOn: b.endsOn ? new Date(b.endsOn + "T00:00:00Z") : null } });
+    await prisma.portalUnitAccess.update({ where: { id: x.id }, data: { ...b, endsOn: b.endsOn ? new Date(b.endsOn + "T00:00:00Z") : null, readingsFrom: b.readingsFrom ? new Date(b.readingsFrom + "T00:00:00Z") : null } });
     await audit(req.user!, "portal.access.update", { accessId: x.id, accountId: x.accountId, unit: `${x.unit.property.name} ${x.unit.code}`, ...b });
     const r = await loadAccount(req, x.accountId);
     res.json(toDTO(r.a, r.scope));

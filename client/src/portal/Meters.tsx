@@ -48,6 +48,7 @@ function MeterCard({ m }: { m: PortalMeterDTO }) {
           <span className="mu">{m.building} · Unit {m.unitCode}</span>
           <h2 style={{ margin: 0 }}>{m.utility} meter {m.code}</h2>
           {m.location && <span className="mu" style={{ fontSize: 13 }}>{m.location}</span>}
+          {m.readingsFrom && <span className="mu" style={{ fontSize: 13, display: "block" }}>Showing readings from {fmtDay(m.readingsFrom)}</span>}
         </div>
       </div>
       <div className="pp-mstats">

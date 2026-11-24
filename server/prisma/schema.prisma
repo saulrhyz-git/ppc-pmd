@@ -424,6 +424,8 @@ model PortalUnitAccess {
   seeAllRequests Boolean       @default(false)
   /// Access ends automatically after this day (for example the end of a lease).
   endsOn         DateTime?     @db.Date
+  /// Meter readings shown in the portal start from this day (for example move-in). Null = full history.
+  readingsFrom   DateTime?     @db.Date
   revokedAt      DateTime?
   grantedById    String?
   grantedByName  String?

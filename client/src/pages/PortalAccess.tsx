@@ -25,11 +25,13 @@ function LinkBox({ link, purpose }: { link: PortalLinkDTO; purpose: "invite" | "
   );
 }
 
-function AccessFields({ v, set }: { v: { relation: PortalRelation; canRequest: boolean; seeAllRequests: boolean; endsOn: string }; set: (p: Partial<typeof v>) => void }) {
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+function AccessFields({ v, set }: { v: { relation: PortalRelation; canRequest: boolean; seeAllRequests: boolean; endsOn: string; readingsFrom: string }; set: (p: Partial<typeof v>) => void }) {
   return (
     <>
       <label className="ff"><span className="mu">Relation to the unit</span>
-        <select value={v.relation} onChange={(e) => { const r = e.target.value as PortalRelation; set({ relation: r, seeAllRequests: r === "Owner" }); }}>
+        <select value={v.relation} onChange={(e) => { const r = e.target.value as PortalRelation; set({ relation: r, seeAllRequests: r === "Owner", readingsFrom: r === "Owner" ? "" : v.readingsFrom || todayStr() }); }}>
           {PORTAL_RELATIONS.map((r) => <option key={r}>{r}</option>)}
         </select>
         <span className="mu">{PORTAL_RELATION_NOTES[v.relation]}</span>
@@ -37,17 +39,21 @@ function AccessFields({ v, set }: { v: { relation: PortalRelation; canRequest: b
       <label className="row"><input type="checkbox" checked={v.canRequest} onChange={(e) => set({ canRequest: e.target.checked })} /> Can file job requests and send messages</label>
       <label className="row"><input type="checkbox" checked={v.seeAllRequests} onChange={(e) => set({ seeAllRequests: e.target.checked })} /> Sees requests other people filed for this unit</label>
       <label className="ff"><span className="mu">Access ends on (optional, e.g. lease end)</span><input type="date" value={v.endsOn} onChange={(e) => set({ endsOn: e.target.value })} /></label>
+      <label className="ff"><span className="mu">Show meter readings from (e.g. move-in date)</span>
+        <input type="date" value={v.readingsFrom} onChange={(e) => set({ readingsFrom: e.target.value })} />
+        <span className="mu">{v.readingsFrom ? "Readings before this date stay hidden, such as the previous occupant's." : "Blank: the unit's full reading history is shown."}</span>
+      </label>
     </>
   );
 }
 
 function InviteSheet({ units, unitId, onClose }: { units: UnitRow[]; unitId: string; onClose: () => void }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ email: "", name: "", phone: "", unitId: unitId || units[0]?.id || "", relation: "Tenant" as PortalRelation, canRequest: true, seeAllRequests: false, endsOn: "" });
+  const [f, setF] = useState({ email: "", name: "", phone: "", unitId: unitId || units[0]?.id || "", relation: "Tenant" as PortalRelation, canRequest: true, seeAllRequests: false, endsOn: "", readingsFrom: todayStr() });
   const [res, setRes] = useState<{ account: PortalAccountAdminDTO; link: PortalLinkDTO | null } | null>(null);
   const [err, setErr] = useState("");
   const m = useMutation({
-    mutationFn: () => api.post<{ account: PortalAccountAdminDTO; link: PortalLinkDTO | null }>("/portal-admin/invite", { ...f, endsOn: f.endsOn || null }),
+    mutationFn: () => api.post<{ account: PortalAccountAdminDTO; link: PortalLinkDTO | null }>("/portal-admin/invite", { ...f, endsOn: f.endsOn || null, readingsFrom: f.readingsFrom || null }),
     onSuccess: (r) => { setRes(r); qc.invalidateQueries({ queryKey: ["portal-admin"] }); },
     onError: (e) => setErr((e as Error).message),
   });
@@ -89,10 +95,10 @@ function InviteSheet({ units, unitId, onClose }: { units: UnitRow[]; unitId: str
 
 function AccessRow({ x, canWrite, onSaved }: { x: PortalAccessDTO; canWrite: boolean; onSaved: (a: PortalAccountAdminDTO) => void }) {
   const [edit, setEdit] = useState(false);
-  const [v, setV] = useState({ relation: x.relation, canRequest: x.canRequest, seeAllRequests: x.seeAllRequests, endsOn: x.endsOn ?? "" });
+  const [v, setV] = useState({ relation: x.relation, canRequest: x.canRequest, seeAllRequests: x.seeAllRequests, endsOn: x.endsOn ?? "", readingsFrom: x.readingsFrom ?? "" });
   const [err, setErr] = useState("");
   const save = useMutation({
-    mutationFn: () => api.patch<PortalAccountAdminDTO>(`/portal-admin/access/${x.id}`, { ...v, endsOn: v.endsOn || null }),
+    mutationFn: () => api.patch<PortalAccountAdminDTO>(`/portal-admin/access/${x.id}`, { ...v, endsOn: v.endsOn || null, readingsFrom: v.readingsFrom || null }),
     onSuccess: (a) => { setEdit(false); onSaved(a); }, onError: (e) => setErr((e as Error).message),
   });
   const toggle = useMutation({
@@ -106,6 +112,7 @@ function AccessRow({ x, canWrite, onSaved }: { x: PortalAccessDTO; canWrite: boo
       <span className="mu">
         {x.revokedAt ? `Revoked ${when(x.revokedAt)}` : expired ? `Ended ${fmtDate(x.endsOn!)}` : x.endsOn ? `Until ${fmtDate(x.endsOn)}` : "No end date"}
         {" · "}{x.canRequest ? "can file requests" : "view only"}{" · "}{x.seeAllRequests ? "sees all unit requests" : "sees own requests"}
+        {" · "}{x.readingsFrom ? `meter readings from ${fmtDate(x.readingsFrom)}` : "full meter history"}
         {x.grantedByName ? ` · granted by ${x.grantedByName}` : ""}
       </span>
       {edit ? (
