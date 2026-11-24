@@ -12,7 +12,11 @@ import { dataRouter } from "./routes/data.ts";
 import { concernsRouter } from "./routes/concerns.ts";
 import { adminRouter } from "./routes/admin.ts";
 import { workOrdersRouter } from "./routes/workorders.ts";
+import { assetsRouter } from "./routes/assets.ts";
+import { metersRouter } from "./routes/meters.ts";
 import { requireAuth } from "./auth.ts";
+import { portalRouter } from "./portal/routes.ts";
+import { portalAdminRouter } from "./portal/admin.ts";
 
 const PORT = Number(process.env.PORT || 3000);
 const isProd = process.env.NODE_ENV === "production";
@@ -25,6 +29,9 @@ if (!secret || secret.length < 32) {
 const app = express();
 app.set("trust proxy", process.env.TRUST_PROXY === "1" ? 1 : false);
 app.use(helmet({ contentSecurityPolicy: { directives: { "img-src": ["'self'", "data:", "blob:"] } } }));
+// The public owner / tenant portal has its own sign-in, cookie, body limits and rate limits, and is mounted
+// before the staff session so staff cookies and staff routes are never involved in portal requests.
+app.use("/api/portal", portalRouter);
 app.use(express.json({ limit: "12mb" }));
 
 const PgStore = connectPg(session);
@@ -45,6 +52,9 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/concerns", concernsRouter);
 app.use("/api/work-orders", workOrdersRouter);
+app.use("/api/assets", assetsRouter);
+app.use("/api/meters", metersRouter);
+app.use("/api/portal-admin", requireAuth, portalAdminRouter);
 app.use("/api", adminRouter);
 app.use("/api", requireAuth, dataRouter);
 app.use("/api", (_req, _res, next) => next(new HttpError(404, "Not found")));
@@ -54,6 +64,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(here, "../../client/dist");
 if (fs.existsSync(dist)) {
   app.use(express.static(dist, { index: false, maxAge: "1h" }));
+  // The portal is a separate page with its own small bundle, so the public never downloads the staff app.
+  app.get(["/portal", "/portal/*"], (_req, res) => res.sendFile(path.join(dist, "portal.html")));
   app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
 }
 

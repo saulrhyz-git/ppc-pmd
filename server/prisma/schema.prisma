@@ -21,7 +21,17 @@ model Property {
   section    Section? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   scoreRed   Int      @default(3)
   scoreAmber Int      @default(1)
+  /// Building record fields. A property is one building (or one estate run as one building).
+  kind       String   @default("Commercial") // Condominium | Commercial | Mixed
+  code       String   @default("")
+  address    String   @default("")
+  floors     Int?
+  notes      String   @default("")
   createdAt  DateTime @default(now())
+
+  units  Unit[]
+  assets Asset[]
+  meters Meter[]
 }
 
 model User {
@@ -48,6 +58,10 @@ model User {
   woAssigned    WorkOrderAssignee[] @relation("WoAssigner")
   woCreated     WorkOrder[]         @relation("WoCreator")
   woEvents      WorkOrderEvent[]
+
+  meterReadings MeterReading[] @relation("ReadingTaker")
+  voidedReadings MeterReading[] @relation("ReadingVoider")
+  meterEvents   MeterEvent[]
 }
 
 /// One row of a register or log (concern slips, work orders, PM sheet, ...).
@@ -75,8 +89,15 @@ model Concern {
   location    String    @default("")
   concern     String
   status      String    @default("Sent")
-  createdById String
-  createdBy   User      @relation("ConcernCreator", fields: [createdById], references: [id])
+  /// Staff or legacy Tenant user who raised it. Null when raised through the owner / tenant portal.
+  createdById String?
+  createdBy   User?     @relation("ConcernCreator", fields: [createdById], references: [id])
+  /// Portal account that raised it, and the unit it is about.
+  portalAccountId String?
+  portalAccount   PortalAccount? @relation(fields: [portalAccountId], references: [id], onDelete: SetNull)
+  unitId          String?
+  unit            Unit?          @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  urgency         String         @default("Normal") // Normal | Urgent (as the requester sees it)
   receivedAt  DateTime?
   receivedBy  String?
   slipRowId   String?
@@ -87,6 +108,8 @@ model Concern {
   workOrders WorkOrder[]
 
   @@index([property])
+  @@index([portalAccountId])
+  @@index([unitId])
 }
 
 /// A work order. Replaces the old "m" (work orders master log) register rows.
@@ -119,6 +142,10 @@ model WorkOrder {
   ownerName    String    @default("") // free-text owner carried over from the old register
   concernId    String?
   concern      Concern?  @relation(fields: [concernId], references: [id], onDelete: SetNull)
+  unitId       String?
+  unit         Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  assetId      String?
+  assetRec     Asset?    @relation(fields: [assetId], references: [id], onDelete: SetNull)
   createdById  String?
   createdBy    User?     @relation("WoCreator", fields: [createdById], references: [id], onDelete: SetNull)
   updatedById  String?
@@ -131,6 +158,8 @@ model WorkOrder {
 
   @@index([property, status])
   @@index([status])
+  @@index([unitId])
+  @@index([assetId])
 }
 
 model WorkOrderAssignee {
@@ -169,8 +198,11 @@ model ConcernUpdate {
   concern   Concern   @relation(fields: [concernId], references: [id], onDelete: Cascade)
   kind      String // followup | response | status
   message   String
-  authorId  String
-  author    User      @relation(fields: [authorId], references: [id])
+  authorId  String?
+  author    User?     @relation(fields: [authorId], references: [id])
+  /// Set instead of authorId when a portal account wrote the follow-up.
+  portalAccountId String?
+  portalAccount   PortalAccount? @relation(fields: [portalAccountId], references: [id], onDelete: SetNull)
   seenAt    DateTime?
   createdAt DateTime  @default(now())
 }
@@ -206,4 +238,232 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ---- Assets and meters ----
+
+/// A unit or space in a building: a condominium unit, a commercial leased space, or a common area.
+/// The owner/tenant portal links accounts to units.
+model Unit {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  code       String // e.g. "12-03" or "GF-05"
+  kind       String   @default("Commercial space") // see UNIT_KINDS in shared/src/assets.ts
+  floor      String   @default("")
+  areaSqm    Decimal? @db.Decimal(10, 2)
+  occupancy  String   @default("Vacant") // Vacant | Owner-occupied | Leased
+  ownerName  String   @default("")
+  tenantName String   @default("")
+  status     String   @default("Active") // Active | Inactive
+  notes      String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  assets     Asset[]
+  meters     Meter[]
+  workOrders WorkOrder[]
+  portalAccess PortalUnitAccess[]
+  concerns     Concern[]
+
+  @@unique([propertyId, code])
+}
+
+/// A piece of equipment or a system in a building (chiller, pump, elevator, panel board...).
+/// May sit inside a unit and may belong to a parent asset.
+model Asset {
+  id            String    @id @default(cuid())
+  tag           String    @unique // e.g. "I3-CH-01"
+  propertyId    String
+  property      Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId        String?
+  unit          Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  parentId      String?
+  parent        Asset?    @relation("AssetTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children      Asset[]   @relation("AssetTree")
+  name          String
+  category      String    @default("") // see ASSET_CATEGORIES
+  trade         String    @default("")
+  location      String    @default("")
+  make          String    @default("")
+  model         String    @default("")
+  serial        String    @default("")
+  installDate   DateTime? @db.Date
+  warrantyUntil DateTime? @db.Date
+  critical      Boolean   @default(false)
+  status        String    @default("In service") // In service | Down | Standby | Retired
+  notes         String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workOrders WorkOrder[]
+  meters     Meter[]
+
+  @@index([propertyId])
+  @@index([unitId])
+}
+
+/// A utility meter read by technicians. Tenant meters belong to a unit; common-area and
+/// utility main meters belong to the building.
+model Meter {
+  id           String    @id @default(cuid())
+  code         String    @unique // e.g. "M-I3-01"
+  propertyId   String
+  property     Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitId       String?
+  unit         Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  assetId      String?
+  asset        Asset?    @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  meterClass   String    @default("Tenant") // Tenant | Common Area | Utility Main
+  utility      String    @default("Power") // Power | Water
+  unitOfMeasure String   @default("kWh")
+  serial       String    @default("")
+  brand        String    @default("")
+  location     String    @default("")
+  ctRatio      String    @default("") // display only, e.g. "200:5"
+  multiplier   Decimal   @default(1) @db.Decimal(12, 4) // register x multiplier = consumption (utility mains)
+  /// Registers roll over to 0 after this value (e.g. 999999.9). Null = unknown.
+  rolloverAt   Decimal?  @db.Decimal(14, 2)
+  expectedDaily Boolean  @default(true)
+  activeFrom   DateTime  @db.Date
+  activeTo     DateTime? @db.Date
+  notes        String    @default("")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  readings MeterReading[]
+  events   MeterEvent[]
+
+  @@index([propertyId])
+  @@index([unitId])
+}
+
+/// One register reading. One active (not voided) reading per meter per day; replacing a reading voids the old one.
+model MeterReading {
+  id          String    @id @default(cuid())
+  meterId     String
+  meter       Meter     @relation(fields: [meterId], references: [id], onDelete: Cascade)
+  readingDate DateTime  @db.Date
+  readAt      DateTime
+  value       Decimal   @db.Decimal(14, 2)
+  method      String    @default("Manual") // Manual | Photo | Import
+  note        String    @default("")
+  takenById   String?
+  takenBy     User?     @relation("ReadingTaker", fields: [takenById], references: [id], onDelete: SetNull)
+  voidedAt    DateTime?
+  voidedById  String?
+  voidedBy    User?     @relation("ReadingVoider", fields: [voidedById], references: [id], onDelete: SetNull)
+  voidReason  String    @default("")
+  createdAt   DateTime  @default(now())
+
+  @@index([meterId, readingDate])
+}
+
+/// Replacement, rollover, maintenance, calibration... A replacement or rollover carries the old
+/// register's final value and the new register's start value so consumption stays correct.
+model MeterEvent {
+  id          String   @id @default(cuid())
+  meterId     String
+  meter       Meter    @relation(fields: [meterId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  type        String // Replacement | Rollover | Maintenance | Calibration | Reconfiguration
+  prevReading Decimal? @db.Decimal(14, 2)
+  newReading  Decimal? @db.Decimal(14, 2)
+  notes       String   @default("")
+  byId        String?
+  by          User?    @relation(fields: [byId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([meterId, date])
+}
+
+// ---- Portal ----
+// Owner / tenant portal. Portal accounts are kept apart from staff users on purpose: they sign in on a
+// different endpoint with a different cookie, and nothing a portal account holds can open a staff screen.
+
+/// A unit owner, tenant, occupant or representative. Created only by staff invitation.
+model PortalAccount {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  phone             String    @default("")
+  /// Null until the person opens their invitation and sets a password.
+  passwordHash      String?
+  passwordChangedAt DateTime?
+  /// TOTP secret, AES-256-GCM encrypted. Pending until the first code is confirmed.
+  mfaSecret         String?
+  mfaEnabled        Boolean   @default(false)
+  mfaLastStep       Int?
+  /// sha256 of unused recovery codes.
+  recoveryCodes     String[]
+  active            Boolean   @default(true)
+  failedLogins      Int       @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  access         PortalUnitAccess[]
+  sessions       PortalSession[]
+  tokens         PortalToken[]
+  concerns       Concern[]
+  concernUpdates ConcernUpdate[]
+}
+
+/// Which units an account may see, and what it may do there. Revoked rows are kept for the record.
+model PortalUnitAccess {
+  id             String        @id @default(cuid())
+  accountId      String
+  account        PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  unitId         String
+  unit           Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  relation       String // Owner | Tenant | Occupant | Representative
+  canRequest     Boolean       @default(true)
+  /// See requests other people filed for this unit (not only their own).
+  seeAllRequests Boolean       @default(false)
+  /// Access ends automatically after this day (for example the end of a lease).
+  endsOn         DateTime?     @db.Date
+  revokedAt      DateTime?
+  grantedById    String?
+  grantedByName  String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([accountId, unitId])
+  @@index([unitId])
+}
+
+/// Single-use invitation and password reset links. Only the sha256 of the token is stored.
+model PortalToken {
+  id          String        @id @default(cuid())
+  accountId   String
+  account     PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  purpose     String // invite | reset
+  tokenHash   String        @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdById String?
+  createdAt   DateTime      @default(now())
+
+  @@index([accountId])
+}
+
+/// A signed-in browser. The cookie holds a random token; only its sha256 is stored.
+model PortalSession {
+  id         String        @id @default(cuid())
+  accountId  String
+  account    PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tokenHash  String        @unique
+  /// Password checked, two-step code still needed.
+  mfaPending Boolean       @default(false)
+  mfaFails   Int           @default(0)
+  ip         String        @default("")
+  userAgent  String        @default("")
+  createdAt  DateTime      @default(now())
+  lastSeenAt DateTime      @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  @@index([accountId])
 }

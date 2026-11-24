@@ -16,6 +16,8 @@ const canWrite = requireTab("wos", 2);
 const include = {
   assignees: { include: { user: { select: { id: true, name: true, role: true } } }, orderBy: { assignedAt: "asc" as const } },
   createdBy: { select: { name: true } },
+  unit: { select: { code: true } },
+  assetRec: { select: { tag: true, name: true } },
 };
 const includeEvents = {
   ...include,
@@ -36,6 +38,7 @@ export function toDTO(w: WoFull | WoWithEvents): WorkOrderDTO {
     dateOpened: day(w.dateOpened), targetDate: day(w.targetDate),
     startedAt: iso(w.startedAt), completedAt: iso(w.completedAt), closedAt: iso(w.closedAt),
     holdReason: w.holdReason, reason: w.reason, actionTaken: w.actionTaken, ownerName: w.ownerName, concernId: w.concernId,
+    unitId: w.unitId, unitCode: w.unit?.code ?? null, assetId: w.assetId, assetTag: w.assetRec?.tag ?? null, assetName: w.assetRec?.name ?? null,
     assignees: w.assignees.map((a) => a.user),
     createdByName: w.createdBy?.name ?? null, createdAt: w.createdAt.toISOString(), updatedAt: w.updatedAt.toISOString(),
   };
@@ -83,6 +86,18 @@ async function checkAssignees(property: string, userIds: string[]) {
   const ok = new Set((await assignableFor(property)).map((u) => u.id));
   const bad = userIds.filter((i) => !ok.has(i));
   if (bad.length) throw new HttpError(400, "Someone you picked cannot be assigned work in this building");
+}
+
+/** The linked unit and asset must be in the work order's building (and the asset in the unit, if both are given). */
+async function checkLinks(property: string, unitId: string | null | undefined, assetId: string | null | undefined) {
+  if (unitId) {
+    const u = await prisma.unit.findUnique({ where: { id: unitId }, include: { property: { select: { name: true } } } });
+    if (!u || u.property.name !== property) throw new HttpError(400, "That unit is not in this building");
+  }
+  if (assetId) {
+    const a = await prisma.asset.findUnique({ where: { id: assetId }, include: { property: { select: { name: true } } } });
+    if (!a || a.property.name !== property) throw new HttpError(400, "That asset is not in this building");
+  }
 }
 
 const event = (tx: Prisma.TransactionClient, workOrderId: string, u: SessionUser, kind: string, data: { fromStatus?: string; toStatus?: string; message?: string; detail?: object } = {}) =>
@@ -147,6 +162,8 @@ const details = {
   estCost: z.number().nonnegative().nullable(),
   chargeable: z.boolean(),
   ownerName: z.string().max(200),
+  unitId: z.string().nullable(),
+  assetId: z.string().nullable(),
 };
 const notes = { actionTaken: z.string().max(4000), rootCause: z.string().max(4000), remarks: z.string().max(4000), reason: z.string().max(4000) };
 
@@ -164,6 +181,8 @@ const createBody = z.object({
   estCost: details.estCost.default(null),
   chargeable: details.chargeable.default(false),
   ownerName: details.ownerName.default(""),
+  unitId: details.unitId.default(null),
+  assetId: details.assetId.default(null),
   dateOpened: date.optional(),
   assigneeIds: z.array(z.string()).max(20).default([]),
   concernId: z.string().optional(),
@@ -177,6 +196,7 @@ workOrdersRouter.post("/", canWrite, async (req, res, next) => {
     const assigneeIds = [...new Set(b.assigneeIds)];
     if (assigneeIds.length && !canAssign(u)) throw new HttpError(403, "Only supervisors can assign work orders");
     await checkAssignees(b.property, assigneeIds);
+    await checkLinks(b.property, b.unitId, b.assetId);
     const opened = b.dateOpened ?? day(new Date());
     if (b.targetDate < opened) throw new HttpError(400, "The target date is before the date opened");
     let concern = null;
@@ -185,6 +205,13 @@ workOrdersRouter.post("/", canWrite, async (req, res, next) => {
       if (!concern || concern.property !== b.property) throw new HttpError(400, "That concern is not for this building");
     }
     const { assigneeIds: _a, concernId: _c, dateOpened: _d, ...fields } = b;
+    // A concern raised for a unit (owner/tenant portal) carries its unit over.
+    if (!fields.unitId && concern?.unitId) fields.unitId = concern.unitId;
+    // Keep the text column filled for the dashboards and CSV exports.
+    if (fields.assetId && !fields.asset) {
+      const a = await prisma.asset.findUnique({ where: { id: fields.assetId }, select: { tag: true, name: true } });
+      if (a) fields.asset = `${a.tag} ${a.name}`;
+    }
     const created = await prisma.$transaction(async (tx) => {
       const w = await tx.workOrder.create({
         data: {
@@ -213,6 +240,7 @@ workOrdersRouter.post("/", canWrite, async (req, res, next) => {
 const LABELS: Record<string, string> = {
   title: "title", description: "description", activityType: "activity type", trade: "trade", priority: "priority", location: "location", asset: "asset",
   reportedBy: "reported by", tenant: "tenant", targetDate: "target date", estCost: "estimated cost", chargeable: "chargeable", ownerName: "owner",
+  unitId: "unit", assetId: "asset record",
   actionTaken: "action taken", rootCause: "root cause", remarks: "remarks", reason: "reason for delay",
 };
 
@@ -223,6 +251,7 @@ workOrdersRouter.patch("/:id", canWrite, async (req, res, next) => {
     const manager = canEditDetails(u);
     if (!canEditWorkNotes(u, { assigneeIds: ids(w) })) throw new HttpError(403, "Only the assigned technicians or a supervisor can edit this work order");
     const b = z.object(manager ? { ...details, ...notes } : notes).partial().strict().parse(req.body) as Record<string, unknown>;
+    await checkLinks(w.property, b.unitId as string | null | undefined, b.assetId as string | null | undefined);
     const data: Record<string, unknown> = {};
     const changed: string[] = [];
     for (const [k, v] of Object.entries(b)) {

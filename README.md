@@ -17,6 +17,8 @@ every register. It is the production version of the single-file prototype (PMD v
 | Overall / Section Overview | Section cards, ranking table, KPI tiles per building |
 | Work Orders | Every work order with status, priority and assignees; start / hold / complete / verify / close; work notes and full history. Phone-friendly for technicians |
 | Concerns & Work Orders | 6-month concern charts by building and trade, tenant-portal inbox, concern slips, reactive vs preventive, leadtime compliance, open work orders, recurring concerns |
+| Buildings & Assets | Units and leased spaces (condominium units, commercial spaces, common areas), equipment with tags, parent/child parts and warranty, and buildings (condominium / commercial). Each unit and piece of equipment shows its work orders and meters. Units can be pasted in bulk from a spreadsheet |
+| Meter Readings | Technicians' daily round sheet (phone-friendly) with on-the-spot checks; exceptions (reading lower than previous, missing readings, high / low / zero use against the meter's own baseline); monthly use per meter vs last month; energy balance of the utility main meter against tenant and common-area meters; meter list, events (replacement, rollover) and full reading history with void and replace |
 | Breakdowns & Assets | MTTR, breakdown log, critical system uptime (Power, Water, Elevator, FDAS, AFSS) |
 | Financial Performance | Budget utilisation YTD, monthly opex chart, quarterly variance |
 | Project Monitoring | CAPEX and projects vs straight-line plan, budget forecast at completion |
@@ -25,15 +27,68 @@ every register. It is the production version of the single-file prototype (PMD v
 | Safety & Security | Monthly incident reduction, 12-month chart, incident log |
 | Data | Spreadsheet-style editing of all 13 registers, CSV import / export, blank templates |
 | Settings | Users and screen access, buildings and sections, scoring weights, Red / Amber targets, as-of date, change history |
-| Tenant portal | Tenants raise concerns with photos, see status and replies, send follow-ups |
+| Tenant portal | Legacy tenant sign-in inside the staff app (see the owner & tenant portal below for the new public portal) |
+| Portal Access | Invite owners and tenants to the owner & tenant portal and manage their unit access |
 
 **Roles.** General Manager and Department Head see every building. Supervisors see the buildings in their section.
 Admin/Engineers and Technicians see their assigned buildings. Tenants only see the tenant portal for their own concerns.
 All filtering is enforced on the server. Only the Department Head can open Settings beyond "My password".
 
+**Assets and meters.** Work orders link to a unit and a piece of equipment (the old free-text Asset column is
+kept for older work orders; the upgrade links them automatically where the text matches exactly one asset tag or
+name in the same building, and copies the old Asset register rows into equipment records). Meter checks follow the
+"Tenant Power Meter Monitoring" design: readings are never edited, only voided and re-entered; meter replacements and
+rollovers are logged as events so consumption stays right; a day is compared with the meter's median daily use over
+the last 30 days, or with the same weekday when the space has a weekly pattern (for example closed on Sundays).
+Limits are stored in the `meterThresholds` setting (defaults in `shared/src/meters.ts`).
+
 **Tenant concerns.** When staff press *Receive*, the concern is copied to the Concern slips register. Responding fills
 in the response time; marking it Resolved or Closed fills the resolution and closing dates, so the concern KPIs
 update automatically.
+
+## Owner & tenant portal (`/portal`)
+
+A separate, public-facing site for unit owners, tenants, occupants and their representatives. They see only the
+units staff give them access to, file job requests with photos, follow replies and work order status, and message
+property management. Requests land in the existing **Concerns** inbox (marked as from the portal), so staff receive,
+answer and turn them into work orders exactly as before.
+
+**Staff side.** *Portal Access* (Department Head, Supervisors and Admin/Engineers for their own buildings; the
+General Manager can view) lists units and portal accounts. *+ Invite* picks a unit, the person's email and their
+relation (Owner, Tenant, Occupant, Representative), whether they may file requests, whether they see requests others
+filed for the unit (on by default for owners), and an optional end date such as the lease end. The app shows a
+one-time invitation link for staff to send; the person opens it and sets their own password. Staff can also issue a
+password reset link, unlock, sign someone out everywhere, reset two-step sign-in for a lost phone, revoke a unit or
+disable the account (which signs them out at once). Every action is in the change history.
+
+**Security design**
+
+- Portal accounts are not staff users: separate table, separate sign-in endpoint, separate cookie (`ppc_portal`,
+  HttpOnly, SameSite=Strict, scoped to `/api/portal`). Staff cookies do not work on the portal API and portal cookies
+  do not work on the staff API. The portal page has its own bundle, so the public never downloads the staff app.
+- Invitation only. Invitation (72 h) and reset (24 h) links are random 256-bit tokens, single use, stored only as
+  SHA-256 hashes, and carried after `#` so they never reach server logs or Referer headers.
+- Passwords: at least 12 characters, common and name/email-based passwords refused, bcrypt cost 12. Changing the
+  password signs out other devices.
+- Two-step sign-in (authenticator app, RFC 6238) with 10 single-use recovery codes. Secrets are AES-256-GCM encrypted
+  at rest, recovery codes hashed, a code cannot be reused, and 5 wrong codes end the attempt. A reset link does not
+  bypass it. Set `PORTAL_REQUIRE_MFA=1` to make it mandatory for everyone.
+- Brute-force protection: per-IP and per-IP+email rate limits, account lockout that grows (15 min, 1 h, 24 h), and the
+  same answer and timing for unknown emails, wrong passwords and locked accounts.
+- Sessions: random tokens stored hashed; 30 min idle and 12 h absolute timeout; a new token at every sign-in; people
+  can see and end their other sessions.
+- Access control on the server for every query: only units with current, unrevoked, unexpired access; everything
+  else answers 404. Tenants see their own requests unless allowed to see all.
+- Forged cross-site requests are blocked (custom header plus Origin check). Responses are `no-store`.
+- Uploads: photos and PDF only, checked by file content rather than name, 10 MB and 5 files each; downloads are
+  permission-checked and served sandboxed.
+
+**Putting it on the internet.** Serve it over HTTPS only, with `COOKIE_SECURE=1`, and `TRUST_PROXY=1` behind nginx
+(otherwise every visitor shares one rate limit). To expose only the portal, publish `/portal`, `/api/portal/`,
+`/assets/` and `/favicon.svg` and keep everything else on the internal network. Set `PORTAL_PUBLIC_URL` and
+`PORTAL_SECRET` (see `.env.example`).
+
+`server/scripts/portal-smoke.ts` runs 22 end-to-end security checks against a development server and database.
 
 ## Run it locally (development)
 

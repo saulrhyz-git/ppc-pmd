@@ -21,7 +21,12 @@ export const upload = multer({
 export const concernsRouter = Router();
 concernsRouter.use(requireAuth);
 
-const include = { updates: { include: { author: true }, orderBy: { createdAt: "asc" as const } }, createdBy: true };
+const include = {
+  updates: { include: { author: true, portalAccount: { select: { name: true } } }, orderBy: { createdAt: "asc" as const } },
+  createdBy: true,
+  portalAccount: { select: { name: true, email: true } },
+  unit: { select: { code: true } },
+};
 type Full = Awaited<ReturnType<typeof prisma.concern.findFirstOrThrow<{ include: typeof include }>>>;
 
 async function dto(c: Full, forTenant: boolean): Promise<ConcernDTO> {
@@ -30,8 +35,14 @@ async function dto(c: Full, forTenant: boolean): Promise<ConcernDTO> {
   return {
     id: c.id, controlNo: c.controlNo, property: c.property, tenantName: c.tenantName, trade: c.trade, location: c.location, concern: c.concern,
     status: c.status as ConcernDTO["status"], createdAt: c.createdAt.toISOString(), receivedAt: c.receivedAt?.toISOString() ?? null, receivedBy: c.receivedBy,
-    createdByName: c.createdBy.name,
-    updates: c.updates.map((u) => ({ id: u.id, kind: u.kind as "followup", message: u.message, authorName: forTenant && u.author.role !== "Tenant" ? "Property management" : u.author.name, authorRole: u.author.role, createdAt: u.createdAt.toISOString(), attachments: a("update", u.id) })),
+    createdByName: c.createdBy?.name ?? (c.portalAccount ? `${c.portalAccount.name} (portal)` : "Unknown"),
+    source: c.portalAccountId ? "portal" : "app", unitCode: c.unit?.code ?? null, urgency: c.urgency,
+    updates: c.updates.map((u) => {
+      // Portal follow-ups show as "Tenant" so the inbox styles them as the requester's messages.
+      const role = u.author?.role ?? "Tenant";
+      const name = u.author?.name ?? u.portalAccount?.name ?? "Unknown";
+      return { id: u.id, kind: u.kind as "followup", message: u.message, authorName: forTenant && role !== "Tenant" ? "Property management" : name, authorRole: role, createdAt: u.createdAt.toISOString(), attachments: a("update", u.id) };
+    }),
     attachments: a("concern", c.id),
     unseenFollowups: c.updates.filter((u) => u.kind === "followup" && !u.seenAt).length,
   };
@@ -52,7 +63,7 @@ async function saveFiles(req: Request, ownerType: string, ownerId: string, prope
   for (const f of files) await prisma.attachment.create({ data: { ownerType, ownerId, filename: f.originalname.slice(0, 200), mime: f.mimetype, size: f.size, storedName: f.filename, property, createdById: req.user!.id } });
 }
 
-async function nextControlNo() {
+export async function nextControlNo() {
   const y = new Date().getFullYear();
   const n = await prisma.concern.count({ where: { controlNo: { startsWith: `TC-${y}-` } } });
   return `TC-${y}-${String(n + 1).padStart(4, "0")}`;
@@ -104,7 +115,7 @@ concernsRouter.post("/:id/receive", async (req, res, next) => {
       const now = new Date();
       const pad = (n: number) => String(n).padStart(2, "0");
       const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      const slip = await prisma.datasetRow.create({ data: { dataset: "cs", property: c.property, createdById: u.id, updatedById: u.id, data: { control_no: c.controlNo, property: c.property, concern: c.concern + (c.location ? ` (${c.location})` : ""), trade: c.trade, requested_by: c.createdBy.name, company: c.tenantName, received_by: u.name, date_received: ts, responded_by: "", date_responded: "", action_taken: "", resolution_date: "", date_closed: "", work_order: "", tenant_account: c.createdBy.email, tenant_update: "" } } });
+      const slip = await prisma.datasetRow.create({ data: { dataset: "cs", property: c.property, createdById: u.id, updatedById: u.id, data: { control_no: c.controlNo, property: c.property, concern: c.concern + (c.location ? ` (${c.location})` : ""), trade: c.trade, requested_by: c.createdBy?.name ?? c.portalAccount?.name ?? "", company: c.tenantName, received_by: u.name, date_received: ts, responded_by: "", date_responded: "", action_taken: "", resolution_date: "", date_closed: "", work_order: "", tenant_account: c.createdBy?.email ?? c.portalAccount?.email ?? "", tenant_update: "" } } });
       await prisma.concern.update({ where: { id: c.id }, data: { receivedAt: now, receivedBy: u.name, status: "Received", slipRowId: slip.id } });
       await prisma.concernUpdate.create({ data: { concernId: c.id, kind: "status", message: "Received by property management", authorId: u.id, seenAt: now } });
     }

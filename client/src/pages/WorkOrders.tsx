@@ -5,6 +5,7 @@ import {
   allowedMoves, canAssign, canEditDetails, canEditWorkNotes,
   type SessionUser, type WoStatus, type WoUserRef, type WorkOrderDTO,
 } from "@pmd/shared";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { useFilter } from "../state";
@@ -48,14 +49,52 @@ function useRefresh() {
 }
 
 // ---------------- create ----------------
-export interface WoPrefill { property?: string; title?: string; description?: string; trade?: string; location?: string; tenant?: string; reportedBy?: string; concernId?: string }
+export interface WoPrefill { property?: string; title?: string; description?: string; trade?: string; location?: string; tenant?: string; reportedBy?: string; concernId?: string; unitId?: string; assetId?: string; priority?: string }
+
+interface Lookup {
+  units: { id: string; code: string; tenantName: string; ownerName: string; kind: string; floor: string }[];
+  assets: { id: string; tag: string; name: string; unitId: string | null; location: string; category: string }[];
+}
+export const useAssetLookup = (property: string) =>
+  useQuery({ queryKey: ["asset-lookup", property], queryFn: () => api.get<Lookup>(`/assets/lookup?property=${encodeURIComponent(property)}`), enabled: !!property, staleTime: 60_000 });
+
+/** Picks the unit/space and the equipment record a work order is about. */
+function LinkFields({ property, unitId, assetId, onChange }: { property: string; unitId: string; assetId: string; onChange: (v: { unitId: string; assetId: string; assetText?: string; tenant?: string }) => void }) {
+  const q = useAssetLookup(property);
+  const units = q.data?.units ?? [], assets = q.data?.assets ?? [];
+  const shown = unitId ? assets.filter((a) => a.unitId === unitId || !a.unitId) : assets;
+  return (
+    <>
+      <div className="ff"><span className="mu">Unit / space</span>
+        <select value={unitId} onChange={(e) => {
+          const u = units.find((x) => x.id === e.target.value);
+          const keep = assets.find((a) => a.id === assetId);
+          onChange({ unitId: e.target.value, assetId: keep && keep.unitId && keep.unitId !== e.target.value ? "" : assetId, tenant: u ? u.tenantName || u.ownerName : undefined });
+        }}>
+          <option value="">{units.length ? "– Building / common area –" : "No units recorded yet"}</option>
+          {units.map((u) => <option key={u.id} value={u.id}>{u.code}{u.tenantName || u.ownerName ? " · " + (u.tenantName || u.ownerName) : ""}</option>)}
+        </select>
+      </div>
+      <div className="ff"><span className="mu">Equipment</span>
+        <select value={assetId} onChange={(e) => {
+          const a = assets.find((x) => x.id === e.target.value);
+          onChange({ unitId: unitId || a?.unitId || "", assetId: e.target.value, assetText: a ? `${a.tag} ${a.name}` : "" });
+        }}>
+          <option value="">{assets.length ? "– None –" : "No equipment recorded yet"}</option>
+          {shown.map((a) => <option key={a.id} value={a.id}>{a.tag} · {a.name}</option>)}
+        </select>
+      </div>
+    </>
+  );
+}
 
 export function NewWorkOrderSheet({ prefill, buildings, onClose, onCreated }: { prefill?: WoPrefill; buildings: string[]; onClose: () => void; onCreated?: (w: WorkOrderDTO) => void }) {
   const { user } = useAuth();
   const refresh = useRefresh();
   const [f, setF] = useState({
     property: prefill?.property || buildings[0] || "", title: prefill?.title || "", description: prefill?.description || "",
-    activityType: "Reactive", trade: prefill?.trade || "", priority: "Medium", location: prefill?.location || "", asset: "",
+    activityType: "Reactive", trade: prefill?.trade || "", priority: prefill?.priority || "Medium", location: prefill?.location || "", asset: "",
+    unitId: prefill?.unitId || "", assetId: prefill?.assetId || "",
     tenant: prefill?.tenant || "", reportedBy: prefill?.reportedBy || "", targetDate: addDays(today(), 3), estCost: "", chargeable: false,
   });
   const [assignees, setAssignees] = useState<string[]>([]);
@@ -63,9 +102,13 @@ export function NewWorkOrderSheet({ prefill, buildings, onClose, onCreated }: { 
   const set = (k: keyof typeof f, v: string | boolean) => setF((x) => ({ ...x, [k]: v }));
   const manager = !!user && canAssign(user);
   const people = useQuery({ queryKey: ["wo-assignees", f.property], queryFn: () => api.get<WoUserRef[]>(`/work-orders/assignees?property=${encodeURIComponent(f.property)}`), enabled: manager && !!f.property });
-  useEffect(() => setAssignees([]), [f.property]);
+  const firstProperty = useState(f.property)[0];
+  useEffect(() => {
+    setAssignees([]);
+    if (f.property !== firstProperty) setF((x) => ({ ...x, unitId: "", assetId: "" }));
+  }, [f.property, firstProperty]);
   const create = useMutation({
-    mutationFn: () => api.post<WorkOrderDTO>("/work-orders", { ...f, reportedBy: f.reportedBy || undefined, estCost: f.estCost === "" ? null : Number(f.estCost), assigneeIds: assignees, concernId: prefill?.concernId }),
+    mutationFn: () => api.post<WorkOrderDTO>("/work-orders", { ...f, unitId: f.unitId || null, assetId: f.assetId || null, reportedBy: f.reportedBy || undefined, estCost: f.estCost === "" ? null : Number(f.estCost), assigneeIds: assignees, concernId: prefill?.concernId }),
     onSuccess: (w) => { refresh(w); onCreated?.(w); onClose(); },
     onError: (e) => setErr((e as Error).message),
   });
@@ -81,8 +124,8 @@ export function NewWorkOrderSheet({ prefill, buildings, onClose, onCreated }: { 
         <div className="ff"><span className="mu">Target date *</span><input type="date" value={f.targetDate} onChange={(e) => set("targetDate", e.target.value)} /></div>
         <div className="ff"><span className="mu">Trade</span><select value={f.trade} onChange={(e) => set("trade", e.target.value)}><option value="">–</option>{TRADES.map((t) => <option key={t}>{t}</option>)}</select></div>
         <div className="ff"><span className="mu">Activity type</span><select value={f.activityType} onChange={(e) => set("activityType", e.target.value)}>{ACTIVITY_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
-        <div className="ff"><span className="mu">Asset</span><input value={f.asset} onChange={(e) => set("asset", e.target.value)} placeholder="e.g. Lift 2" /></div>
-        <div className="ff"><span className="mu">Location</span><input value={f.location} onChange={(e) => set("location", e.target.value)} /></div>
+        <LinkFields property={f.property} unitId={f.unitId} assetId={f.assetId} onChange={(v) => setF((x) => ({ ...x, unitId: v.unitId, assetId: v.assetId, asset: v.assetText ?? x.asset, tenant: x.tenant || v.tenant || "" }))} />
+        <div className="ff"><span className="mu">Location</span><input value={f.location} onChange={(e) => set("location", e.target.value)} placeholder="e.g. Roof deck, 12F corridor" /></div>
         <div className="ff"><span className="mu">Tenant / company</span><input value={f.tenant} onChange={(e) => set("tenant", e.target.value)} /></div>
         <div className="ff"><span className="mu">Reported by</span><input value={f.reportedBy} onChange={(e) => set("reportedBy", e.target.value)} placeholder={user?.name} /></div>
         <div className="ff"><span className="mu">Est. cost</span><input type="number" min={0} value={f.estCost} onChange={(e) => set("estCost", e.target.value)} /></div>
@@ -209,11 +252,11 @@ function WorkNotes({ w, onDone }: { w: WorkOrderDTO; onDone: (w: WorkOrderDTO) =
 }
 
 function DetailsEditor({ w, onDone, onCancel }: { w: WorkOrderDTO; onDone: (w: WorkOrderDTO) => void; onCancel: () => void }) {
-  const [f, setF] = useState({ title: w.title, description: w.description, priority: w.priority, targetDate: w.targetDate, trade: w.trade, activityType: w.activityType, asset: w.asset, location: w.location, tenant: w.tenant, reportedBy: w.reportedBy, estCost: w.estCost == null ? "" : String(w.estCost), chargeable: w.chargeable });
+  const [f, setF] = useState({ title: w.title, description: w.description, priority: w.priority, targetDate: w.targetDate, trade: w.trade, activityType: w.activityType, asset: w.asset, location: w.location, tenant: w.tenant, unitId: w.unitId ?? "", assetId: w.assetId ?? "", reportedBy: w.reportedBy, estCost: w.estCost == null ? "" : String(w.estCost), chargeable: w.chargeable });
   const [err, setErr] = useState("");
   const set = (k: keyof typeof f, v: string | boolean) => setF((x) => ({ ...x, [k]: v }));
   const save = useMutation({
-    mutationFn: () => api.patch<WorkOrderDTO>(`/work-orders/${w.id}`, { ...f, estCost: f.estCost === "" ? null : Number(f.estCost) }),
+    mutationFn: () => api.patch<WorkOrderDTO>(`/work-orders/${w.id}`, { ...f, unitId: f.unitId || null, assetId: f.assetId || null, estCost: f.estCost === "" ? null : Number(f.estCost) }),
     onSuccess: (x) => onDone(x),
     onError: (e) => setErr((e as Error).message),
   });
@@ -226,7 +269,8 @@ function DetailsEditor({ w, onDone, onCancel }: { w: WorkOrderDTO; onDone: (w: W
         <div className="ff"><span className="mu">Target date</span><input type="date" value={f.targetDate} onChange={(e) => set("targetDate", e.target.value)} /></div>
         <div className="ff"><span className="mu">Trade</span><select value={f.trade} onChange={(e) => set("trade", e.target.value)}><option value="">–</option>{TRADES.map((t) => <option key={t}>{t}</option>)}</select></div>
         <div className="ff"><span className="mu">Activity type</span><select value={f.activityType} onChange={(e) => set("activityType", e.target.value)}>{ACTIVITY_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
-        <div className="ff"><span className="mu">Asset</span><input value={f.asset} onChange={(e) => set("asset", e.target.value)} /></div>
+        <LinkFields property={w.property} unitId={f.unitId} assetId={f.assetId} onChange={(v) => setF((x) => ({ ...x, unitId: v.unitId, assetId: v.assetId, asset: v.assetText ?? x.asset }))} />
+        {!f.assetId && <div className="ff"><span className="mu">Asset (text, older work orders)</span><input value={f.asset} onChange={(e) => set("asset", e.target.value)} /></div>}
         <div className="ff"><span className="mu">Location</span><input value={f.location} onChange={(e) => set("location", e.target.value)} /></div>
         <div className="ff"><span className="mu">Tenant / company</span><input value={f.tenant} onChange={(e) => set("tenant", e.target.value)} /></div>
         <div className="ff"><span className="mu">Reported by</span><input value={f.reportedBy} onChange={(e) => set("reportedBy", e.target.value)} /></div>
@@ -307,7 +351,9 @@ export function WorkOrderSheet({ id, onClose }: { id: string; onClose: () => voi
               {w.completedAt && <><dt>Completed</dt><dd>{when(w.completedAt)}</dd></>}
               {w.closedAt && <><dt>Closed</dt><dd>{when(w.closedAt)}</dd></>}
               <dt>Type</dt><dd>{w.activityType}{w.trade ? " · " + w.trade : ""}</dd>
-              {(w.asset || w.location) && <><dt>Asset / location</dt><dd>{[w.asset, w.location].filter(Boolean).join(" · ")}</dd></>}
+              {w.unitCode && <><dt>Unit / space</dt><dd><Link to={`/assets?unit=${w.unitId}`}>{w.unitCode}</Link></dd></>}
+              {w.assetTag && <><dt>Equipment</dt><dd><Link to={`/assets?asset=${w.assetId}`}>{w.assetTag} · {w.assetName}</Link></dd></>}
+              {((!w.assetId && w.asset) || w.location) && <><dt>{w.assetId ? "Location" : "Asset / location"}</dt><dd>{[w.assetId ? "" : w.asset, w.location].filter(Boolean).join(" · ")}</dd></>}
               {w.tenant && <><dt>Tenant</dt><dd>{w.tenant}{w.chargeable ? " · chargeable" : ""}</dd></>}
               {w.estCost != null && <><dt>Est. cost</dt><dd>{w.estCost.toLocaleString("en-US")}</dd></>}
             </dl>
@@ -338,7 +384,7 @@ export default function WorkOrders() {
   const pick = (k: string) => { sessionStorage.setItem("pmd.woFilter", k); setFilter(k); };
   const list = useMemo(() => {
     const s = search.trim().toLowerCase();
-    const L = (q.data ?? []).filter((w) => !s || [w.ticket, w.title, w.asset, w.location, w.tenant, w.property, ...w.assignees.map((a) => a.name)].some((x) => x.toLowerCase().includes(s)));
+    const L = (q.data ?? []).filter((w) => !s || [w.ticket, w.title, w.asset, w.location, w.tenant, w.property, w.unitCode ?? "", w.assetTag ?? "", ...w.assignees.map((a) => a.name)].some((x) => x.toLowerCase().includes(s)));
     const rank: Record<string, number> = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
     return L.sort((a, b) => (isOpen(a.status) && isOpen(b.status) ? rank[a.priority] - rank[b.priority] : 0) || a.targetDate.localeCompare(b.targetDate));
   }, [q.data, search]);
@@ -364,7 +410,7 @@ export default function WorkOrders() {
                 <div key={w.id} className="woc" onClick={() => setSel(w.id)}>
                   <div className="row"><StatusPill s={w.status} /><PrioPill p={w.priority} /><span className="spacer" /><small className="mu">{w.ticket}</small></div>
                   <b>{w.title}</b>
-                  <small className="mu">{w.property}{w.asset ? " · " + w.asset : ""} · target {isOpen(w.status) && w.targetDate < t ? <span className="err">{fmtDate(w.targetDate)}</span> : fmtDate(w.targetDate)}</small>
+                  <small className="mu">{w.property}{w.unitCode ? " · " + w.unitCode : ""}{w.asset ? " · " + w.asset : ""} · target {isOpen(w.status) && w.targetDate < t ? <span className="err">{fmtDate(w.targetDate)}</span> : fmtDate(w.targetDate)}</small>
                   <small className="mu">{w.assignees.length ? w.assignees.map((a) => a.name).join(", ") : "Not assigned"}</small>
                 </div>
               ))}

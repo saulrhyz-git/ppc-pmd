@@ -7,6 +7,8 @@ import { useDashboard, useFilter } from "./state";
 export const TAB_PATH: Record<TabKey, string> = {
   brief: "/", ov: "/overview", wos: "/work-orders", wo: "/concerns", as: "/breakdowns", bud: "/financial", pjm: "/projects",
   pm: "/preventive", per: "/permits", ct: "/contracts", sf: "/safety", data: "/data", set: "/settings",
+  prt: "/portal-access",
+  ast: "/assets", mtr: "/meters",
 };
 
 const ICON: Partial<Record<TabKey, string>> = {
@@ -22,6 +24,9 @@ const ICON: Partial<Record<TabKey, string>> = {
   ct: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
   sf: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
   set: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  ast: '<path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 10h2M13 10h2M9 14h2M13 14h2M10 21v-3h4v3"/>',
+  mtr: '<circle cx="12" cy="13" r="8"/><path d="M12 13l4-4M8 5.5 7 4M16 5.5 17 4"/>',
+  prt: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.5"/>',
   data: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
 };
 

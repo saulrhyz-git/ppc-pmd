@@ -32,6 +32,10 @@ export interface ConcernDTO {
   receivedAt: string | null;
   receivedBy: string | null;
   createdByName: string;
+  /** "portal" when raised through the owner / tenant portal. */
+  source?: "portal" | "app";
+  unitCode?: string | null;
+  urgency?: string;
   updates: ConcernUpdateDTO[];
   attachments: AttachmentDTO[];
   unseenFollowups: number;

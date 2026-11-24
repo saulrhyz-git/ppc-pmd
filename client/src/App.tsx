@@ -18,6 +18,9 @@ import Safety from "./pages/Safety";
 import DataEntry from "./pages/DataEntry";
 import Settings from "./pages/Settings";
 import WorkOrders from "./pages/WorkOrders";
+import PortalAccess from "./pages/PortalAccess";
+import Assets from "./pages/Assets";
+import Meters from "./pages/Meters";
 import { TAB_PATH } from "./Layout";
 import { TABS } from "@pmd/shared";
 
@@ -44,6 +47,8 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={(user.tabs.brief ?? 0) >= 1 ? <NeedsFocus /> : <Home />} />
         <Route path="work-orders" element={<Guard tab="wos"><WorkOrders /></Guard>} />
+        <Route path="assets" element={<Guard tab="ast"><Assets /></Guard>} />
+        <Route path="meters" element={<Guard tab="mtr"><Meters /></Guard>} />
         <Route path="overview" element={<Guard tab="ov"><Overview /></Guard>} />
         <Route path="concerns" element={<Guard tab="wo"><ConcernsWO /></Guard>} />
         <Route path="breakdowns" element={<Guard tab="as"><Breakdowns /></Guard>} />
@@ -55,6 +60,7 @@ export default function App() {
         <Route path="safety" element={<Guard tab="sf"><Safety /></Guard>} />
         <Route path="data" element={<Guard tab="data"><DataEntry /></Guard>} />
         <Route path="settings" element={<Guard tab="set"><Settings /></Guard>} />
+        <Route path="portal-access" element={<Guard tab="prt"><PortalAccess /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

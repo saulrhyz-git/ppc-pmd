@@ -111,6 +111,12 @@ export interface WorkOrderDTO {
   actionTaken: string;
   ownerName: string;
   concernId: string | null;
+  /** Linked unit/space and equipment records (the free-text location/asset fields stay for older work orders). */
+  unitId: string | null;
+  unitCode: string | null;
+  assetId: string | null;
+  assetTag: string | null;
+  assetName: string | null;
   assignees: WoUserRef[];
   createdByName: string | null;
   createdAt: string;

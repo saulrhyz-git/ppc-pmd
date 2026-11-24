@@ -6,8 +6,8 @@ export const ROLE_NOTES: Record<Role, string> = {
   "Department Head": "Views all buildings; assigns work; manages users and settings.",
   Supervisor: "Buildings in their section; verifies breakdowns; responds to tenant concerns.",
   "Admin/Engineer": "Assigned buildings; creates tickets and logs.",
-  Technician: "Assigned buildings; sees work orders there and updates the ones assigned to them.",
-  Tenant: "Raises concerns for their own building through the tenant portal. No dashboard access.",
+  Technician: "Assigned buildings; updates work orders assigned to them and takes meter readings.",
+  Tenant: "Legacy tenant sign-in. New owners and tenants are invited to the separate owner / tenant portal instead (Portal Access).",
 };
 
 export const TABS = [
@@ -16,6 +16,9 @@ export const TABS = [
   ["wos", "Work Orders"],
   ["wo", "Concerns & Work Orders"],
   ["as", "Breakdowns & Assets"],
+  ["ast", "Buildings & Assets"],
+  ["mtr", "Meter Readings"],
+  ["prt", "Portal Access"],
   ["bud", "Financial Performance"],
   ["pjm", "Project Monitoring"],
   ["pm", "Preventive Maintenance"],
@@ -34,7 +37,9 @@ export function defaultTabs(role: Role): TabAccess {
   const o: TabAccess = {};
   for (const [k] of TABS) {
     if (role === "Tenant") o[k] = 0;
-    else if (role === "Technician") o[k] = k === "wos" ? 2 : k === "set" ? 1 : 0;
+    else if (role === "Technician") o[k] = k === "wos" || k === "mtr" ? 2 : k === "set" || k === "ast" ? 1 : 0;
+    else if (k === "prt") o[k] = role === "General Manager" ? 1 : 2; // owner / tenant portal invitations
+    else if (k === "ast" || k === "mtr") o[k] = role === "General Manager" ? 1 : 2;
     else if (k === "wos") o[k] = role === "General Manager" ? 1 : 2;
     else if (k === "set") o[k] = role === "Department Head" ? 2 : 1; // others see only "My password"
     else if (k === "data") o[k] = role === "General Manager" ? 0 : role === "Supervisor" ? 1 : 2;
