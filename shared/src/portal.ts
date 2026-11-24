@@ -1,3 +1,6 @@
+/** Where the public owner / tenant portal is served on the main site, e.g. https://example.com/myportal. */
+export const PORTAL_PATH = "/myportal";
+
 // Owner / tenant portal: shared types and rules used by the server (which enforces them)
 // and the browser (which only uses them to explain things to the person).
 

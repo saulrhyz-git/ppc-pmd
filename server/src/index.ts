@@ -15,6 +15,7 @@ import { workOrdersRouter } from "./routes/workorders.ts";
 import { assetsRouter } from "./routes/assets.ts";
 import { metersRouter } from "./routes/meters.ts";
 import { requireAuth } from "./auth.ts";
+import { PORTAL_PATH } from "@pmd/shared";
 import { portalRouter } from "./portal/routes.ts";
 import { portalAdminRouter } from "./portal/admin.ts";
 
@@ -65,7 +66,7 @@ const dist = path.resolve(here, "../../client/dist");
 if (fs.existsSync(dist)) {
   app.use(express.static(dist, { index: false, maxAge: "1h" }));
   // The portal is a separate page with its own small bundle, so the public never downloads the staff app.
-  app.get(["/portal", "/portal/*"], (_req, res) => res.sendFile(path.join(dist, "portal.html")));
+  app.get([PORTAL_PATH, PORTAL_PATH + "/*"], (_req, res) => res.sendFile(path.join(dist, "portal.html")));
   app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
 }
 

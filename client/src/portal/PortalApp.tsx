@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PORTAL_PASSWORD_MIN, passwordProblem, type PortalMeDTO } from "@pmd/shared";
 import { papi, setSignedOutHandler } from "./api";
-import { ThemeToggle } from "./bits";
-import Home from "./Home";
+import { Icon, ThemeToggle, initials } from "./bits";
+import { HomePage, RequestsPage } from "./Home";
 import Account from "./Account";
 
 type State = { state: "loading" } | { state: "none" } | { state: "mfa" } | { state: "ok"; me: PortalMeDTO };
@@ -20,39 +20,37 @@ export default function PortalApp() {
     setSignedOutHandler(() => { qc.clear(); setS({ state: "none" }); });
   }, [refresh, qc]);
   const signedIn = (next: State) => { qc.clear(); setS(next); };
-  const logout = async () => { await papi.post("/auth/logout").catch(() => undefined); qc.clear(); setS({ state: "none" }); };
+  const logout = useCallback(async () => { await papi.post("/auth/logout").catch(() => undefined); qc.clear(); setS({ state: "none" }); }, [qc]);
 
-  if (s.state === "loading") return null;
+  if (s.state === "loading") return <div className="pp" />;
+  const mustSecure = s.state === "ok" && s.me.mfaRequired && !s.me.mfaEnabled;
   return (
-    <Routes>
-      <Route path="welcome" element={<Welcome onDone={signedIn} />} />
-      <Route path="*" element={
-        s.state === "none" ? <Login onDone={signedIn} /> :
-        s.state === "mfa" ? <MfaStep onDone={signedIn} onCancel={logout} /> :
-        <Shell me={s.me} onLogout={logout}>
-          <Routes>
-            <Route index element={s.me.mfaRequired && !s.me.mfaEnabled ? <Navigate to="/account" replace /> : <Home me={s.me} />} />
-            <Route path="account" element={<Account me={s.me} onChanged={refresh} />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Shell>
-      } />
-    </Routes>
+    <div className="pp">
+      <Routes>
+        <Route path="welcome" element={<Welcome onDone={signedIn} />} />
+        <Route path="*" element={
+          s.state === "none" ? <Login onDone={signedIn} /> :
+          s.state === "mfa" ? <MfaStep onDone={signedIn} onCancel={logout} /> :
+          <Shell me={s.me} onLogout={logout}>
+            <Routes>
+              <Route index element={mustSecure ? <Navigate to="/account" replace /> : <HomePage me={s.me} />} />
+              <Route path="requests" element={mustSecure ? <Navigate to="/account" replace /> : <RequestsPage me={s.me} />} />
+              <Route path="account" element={<Account me={s.me} onChanged={refresh} />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Shell>
+        } />
+      </Routes>
+    </div>
   );
 }
 
-function Frame({ children, right }: { children: ReactNode; right?: ReactNode }) {
-  return (
-    <>
-      <header>
-        <div className="top">
-          <div><h1>PPC <b>Owner &amp; Tenant</b> Portal</h1><small>Property Management Department</small></div>
-          <div className="row" style={{ marginLeft: "auto" }}>{right}<ThemeToggle /></div>
-        </div>
-      </header>
-      <main>{children}</main>
-    </>
-  );
+// ---------- signed-in layout ----------
+
+const LINKS: [string, string, string][] = [["/", "Home", "home"], ["/requests", "My requests", "list"], ["/account", "Account", "user"]];
+
+function BrandMark() {
+  return <><span className="pp-logo"><Icon name="building" /></span><span>My Portal<small>PPC Property Management</small></span></>;
 }
 
 function Shell({ me, onLogout, children }: { me: PortalMeDTO; onLogout: () => void; children: ReactNode }) {
@@ -64,20 +62,51 @@ function Shell({ me, onLogout, children }: { me: PortalMeDTO; onLogout: () => vo
     evs.forEach((e) => window.addEventListener(e, bump));
     return () => { window.clearTimeout(t); evs.forEach((e) => window.removeEventListener(e, bump)); };
   }, [onLogout]);
+  // Start each screen at the top.
+  const { pathname } = useLocation();
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return (
-    <Frame right={
-      <div className="chip">
-        <div className="av">{me.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}</div>
-        <div className="tx"><b>{me.name}</b><small>{me.email}</small></div>
-        <button onClick={onLogout}>Sign out</button>
+    <>
+      <header className="pp-top">
+        <NavLink to="/" className="pp-brand"><BrandMark /></NavLink>
+        <nav className="pp-nav">{LINKS.map(([to, label, icon]) => <NavLink key={to} to={to} end={to === "/"}><Icon name={icon} />{label}</NavLink>)}</nav>
+        <span className="pp-sp" />
+        <ThemeToggle />
+        <div className="pp-me">
+          <span className="pp-av" title={me.name}>{initials(me.name)}</span>
+          <button className="pp-ghost" onClick={onLogout}>Sign out</button>
+        </div>
+      </header>
+      <main className="pp-main">{children}</main>
+      <nav className="pp-tabbar">{LINKS.map(([to, label, icon]) => <NavLink key={to} to={to} end={to === "/"}><Icon name={icon} />{label}</NavLink>)}</nav>
+    </>
+  );
+}
+
+// ---------- sign-in pages ----------
+
+function AuthLayout({ children }: { children: ReactNode }) {
+  return (
+    <div className="pp-auth">
+      <ThemeToggle />
+      <aside className="pp-auth-side">
+        <div className="pp-brand"><BrandMark /></div>
+        <h1>Your home and workspace, looked after.</h1>
+        <p>The portal for unit owners and tenants. Report a problem in a minute and follow the repair until it’s done.</p>
+        <ul>
+          <li><i>🛠️</i>Report leaks, aircon, electrical and other problems, with photos</li>
+          <li><i>📍</i>See where every request is and when work is planned</li>
+          <li><i>💬</i>Message property management about your request</li>
+          <li><i>🔒</i>Private to you: only the units linked to your account</li>
+        </ul>
+      </aside>
+      <div className="pp-auth-mobile">
+        <div className="pp-brand"><BrandMark /></div>
+        <h1>Your home and workspace, looked after.</h1>
+        <p>Report a problem and follow the repair until it’s done.</p>
       </div>
-    }>
-      <div className="tabs" style={{ marginBottom: 12 }}>
-        <NavLink to="/" end>{({ isActive }) => <button className={isActive ? "on" : ""}>My units &amp; requests</button>}</NavLink>
-        <NavLink to="/account">{({ isActive }) => <button className={isActive ? "on" : ""}>Account &amp; security{!me.mfaEnabled ? " ⚠︎" : ""}</button>}</NavLink>
-      </div>
-      {children}
-    </Frame>
+      <div className="pp-auth-main"><div className="pp-auth-box">{children}</div></div>
+    </div>
   );
 }
 
@@ -93,57 +122,71 @@ function Login({ onDone }: { onDone: (s: State) => void }) {
     finally { setBusy(false); }
   };
   return (
-    <Frame>
-      <form className="card pform" onSubmit={submit}>
-        <h2>Sign in</h2>
-        <p className="mu">For unit owners, tenants and their representatives. Accounts are by invitation from property management.</p>
-        <label className="ff"><span className="mu">Email</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-        <label className="ff"><span className="mu">Password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
-        <button className="cta" disabled={busy} style={{ width: "100%", marginTop: 6 }}>{busy ? "Signing in…" : "Sign in"}</button>
-        {err && <p className="err">{err}</p>}
-        <p className="mu" style={{ marginTop: 14 }}>Forgot your password or lost your phone? Contact property management for a reset link.</p>
+    <AuthLayout>
+      <form onSubmit={submit}>
+        <h2>Welcome back</h2>
+        <p className="mu">Sign in with the email your invitation was sent to.</p>
+        <label className="pp-f"><span>Email</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+        <label className="pp-f"><span>Password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+        <button className="pp-btn full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+        {err && <p className="pp-err">{err}</p>}
+        <div className="pp-info" style={{ marginTop: 18 }}>
+          <b>No account yet?</b> Accounts are by invitation. Ask your building’s property management office to invite you.<br /><br />
+          <b>Forgot your password or changed phones?</b> The office can send you a reset link.
+        </div>
       </form>
-    </Frame>
+    </AuthLayout>
   );
 }
 
 function MfaStep({ onDone, onCancel }: { onDone: (s: State) => void; onCancel: () => void }) {
   const [code, setCode] = useState("");
   const [useRecovery, setUseRecovery] = useState(false);
+  const [after, setAfter] = useState<{ next: State; left: number } | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(""); setBusy(true);
     try {
       const r = await papi.post<State & { recoveryCodesLeft?: number }>("/auth/mfa", { code });
-      if (useRecovery && r.recoveryCodesLeft !== undefined) window.alert(`Recovery code used. You have ${r.recoveryCodesLeft} left. Set up your authenticator again under Account & security if you lost your phone.`);
-      onDone(r);
+      if (useRecovery && r.recoveryCodesLeft !== undefined) setAfter({ next: r, left: r.recoveryCodesLeft }); else onDone(r);
     } catch (x) {
       setErr((x as Error).message);
       if ((x as { status?: number }).status === 401) onCancel();
     } finally { setBusy(false); }
   };
+  if (after) {
+    return (
+      <AuthLayout>
+        <h2>You’re in</h2>
+        <p>You used a recovery code. You have <b>{after.left}</b> left.</p>
+        <p className="mu">If you lost your phone, set up your authenticator app again under Account so you don’t run out.</p>
+        <button className="pp-btn full" onClick={() => onDone(after.next)}>Continue</button>
+      </AuthLayout>
+    );
+  }
   return (
-    <Frame>
-      <form className="card pform" onSubmit={submit}>
-        <h2>Two-step sign-in</h2>
-        <p className="mu">{useRecovery ? "Enter one of your recovery codes." : "Enter the 6-digit code from your authenticator app."}</p>
-        <label className="ff"><span className="mu">{useRecovery ? "Recovery code" : "Code"}</span>
-          <input autoFocus inputMode={useRecovery ? "text" : "numeric"} autoComplete="one-time-code" maxLength={useRecovery ? 20 : 6} value={code} onChange={(e) => setCode(e.target.value.trim())} required />
+    <AuthLayout>
+      <form onSubmit={submit}>
+        <h2>One more step</h2>
+        <p className="mu">{useRecovery ? "Enter one of the recovery codes you saved." : "Open your authenticator app and enter the 6-digit code for My Portal."}</p>
+        <label className="pp-f"><span>{useRecovery ? "Recovery code" : "6-digit code"}</span>
+          <input autoFocus inputMode={useRecovery ? "text" : "numeric"} autoComplete="one-time-code" maxLength={useRecovery ? 20 : 6} value={code} onChange={(e) => setCode(e.target.value.trim())} required
+            style={useRecovery ? undefined : { letterSpacing: ".4em", fontSize: 22, textAlign: "center" }} />
         </label>
-        <button className="cta" disabled={busy} style={{ width: "100%", marginTop: 6 }}>{busy ? "Checking…" : "Continue"}</button>
-        {err && <p className="err">{err}</p>}
-        <div className="row" style={{ marginTop: 12 }}>
-          <button type="button" className="lnk" onClick={() => { setUseRecovery(!useRecovery); setCode(""); }}>{useRecovery ? "Use my authenticator app" : "Use a recovery code"}</button>
-          <span className="spacer" />
-          <button type="button" className="lnk" onClick={onCancel}>Cancel</button>
+        <button className="pp-btn full" disabled={busy}>{busy ? "Checking…" : "Continue"}</button>
+        {err && <p className="pp-err">{err}</p>}
+        <div className="pp-row" style={{ marginTop: 14 }}>
+          <button type="button" className="pp-link" onClick={() => { setUseRecovery(!useRecovery); setCode(""); }}>{useRecovery ? "Use my authenticator app" : "Use a recovery code"}</button>
+          <span className="pp-sp" />
+          <button type="button" className="pp-link" onClick={onCancel}>Cancel</button>
         </div>
       </form>
-    </Frame>
+    </AuthLayout>
   );
 }
 
-/** Opened from an invitation or reset link: /portal/welcome#t=<token>. */
+/** Opened from an invitation or reset link: /myportal/welcome#t=<token>. */
 function Welcome({ onDone }: { onDone: (s: State) => void }) {
   const nav = useNavigate();
   // Read the token once and remove it from the address bar and history straight away.
@@ -164,42 +207,42 @@ function Welcome({ onDone }: { onDone: (s: State) => void }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr("");
     if (problem) return setErr(problem);
-    if (pw !== pw2) return setErr("The two passwords do not match");
+    if (pw !== pw2) return setErr("The two passwords don’t match");
     setBusy(true);
     try {
       const r = await papi.post<State>("/auth/link/use", { token, password: pw, ...(info?.purpose === "invite" ? { name: shownName } : {}) });
       onDone(r);
-      nav(r.state === "ok" && info?.purpose === "invite" ? "/account" : "/", { replace: true });
+      nav("/", { replace: true });
     } catch (x) { setErr((x as Error).message); }
     finally { setBusy(false); }
   };
   return (
-    <Frame>
-      <form className="card pform" onSubmit={submit}>
-        {!token || check.isError ? (
-          <>
-            <h2>Link not valid</h2>
-            <p className="mu">{check.error ? (check.error as Error).message : "This link is incomplete. Open it again from the message you received."}</p>
-            <button type="button" className="cta" onClick={() => nav("/", { replace: true })}>Go to sign in</button>
-          </>
-        ) : !info ? <p className="mu">Checking your link…</p> : (
-          <>
-            <h2>{info.purpose === "invite" ? "Welcome! Set up your account" : "Choose a new password"}</h2>
-            <p className="mu">Account: <b>{info.email}</b></p>
-            {info.purpose === "invite" && (
-              <label className="ff"><span className="mu">Your name</span><input value={shownName} onChange={(e) => setName(e.target.value)} required maxLength={200} /></label>
-            )}
-            <input type="email" autoComplete="username" value={info.email} readOnly hidden />
-            <label className="ff"><span className="mu">New password (at least {PORTAL_PASSWORD_MIN} characters; a short sentence works well)</span>
-              <input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} required />
-            </label>
-            {problem && <p className="err">{problem}</p>}
-            <label className="ff"><span className="mu">Type it again</span><input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} required /></label>
-            <button className="cta" disabled={busy || !!problem} style={{ width: "100%", marginTop: 6 }}>{busy ? "Saving…" : info.purpose === "invite" ? "Create my account" : "Save new password"}</button>
-            {err && <p className="err">{err}</p>}
-          </>
-        )}
-      </form>
-    </Frame>
+    <AuthLayout>
+      {!token || check.isError ? (
+        <>
+          <h2>This link doesn’t work</h2>
+          <p className="mu">{check.error ? (check.error as Error).message : "The link looks incomplete. Open it again from the message you received."}</p>
+          <button type="button" className="pp-btn full" onClick={() => nav("/", { replace: true })}>Go to sign in</button>
+        </>
+      ) : !info ? <p className="mu">Checking your link…</p> : (
+        <form onSubmit={submit}>
+          <h2>{info.purpose === "invite" ? "Welcome to My Portal" : "Choose a new password"}</h2>
+          <p className="mu">{info.purpose === "invite" ? "Your property management office has invited you. Set a password to finish creating your account." : "Pick a new password for your account."}</p>
+          <div className="pp-info" style={{ marginTop: 10 }}>Your account: <b>{info.email}</b></div>
+          {info.purpose === "invite" && (
+            <label className="pp-f"><span>Your name</span><input value={shownName} onChange={(e) => setName(e.target.value)} required maxLength={200} autoComplete="name" /></label>
+          )}
+          <input type="email" autoComplete="username" value={info.email} readOnly hidden />
+          <label className="pp-f"><span>Password</span>
+            <input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} required />
+            <small>At least {PORTAL_PASSWORD_MIN} characters. A short sentence you’ll remember works well, like “Mango tree by window 7”.</small>
+          </label>
+          {problem && <p className="pp-err">{problem}</p>}
+          <label className="pp-f"><span>Type it again</span><input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} required /></label>
+          <button className="pp-btn full" disabled={busy || !!problem}>{busy ? "Saving…" : info.purpose === "invite" ? "Create my account" : "Save new password"}</button>
+          {err && <p className="pp-err">{err}</p>}
+        </form>
+      )}
+    </AuthLayout>
   );
 }

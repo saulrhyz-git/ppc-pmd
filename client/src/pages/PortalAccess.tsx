@@ -172,7 +172,7 @@ export default function PortalAccess() {
   const unit = units.data?.find((u) => u.id === unitId);
   return (
     <>
-      <Card title="Owner & tenant portal" sub="Invite unit owners, tenants and their representatives. They sign in at /portal with their own password (and optional two-step code), and only see the units you give them. Their job requests arrive in the Concerns inbox."
+      <Card title="My Portal (owners & tenants)" sub="Invite unit owners, tenants and their representatives. They sign in at /myportal on this site with their own password (and optional two-step code), and only see the units you give them. Their job requests arrive in the Concerns inbox."
         right={canWrite && shownUnits.length > 0 && <button className="cta sm" onClick={() => setInviting(true)}>+ Invite</button>}>
         <div className="bar">
           <select value={building} onChange={(e) => { setBuilding(e.target.value); setParams({}); }}>

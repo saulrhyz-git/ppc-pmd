@@ -36,11 +36,12 @@ export default function Login() {
       <main>
         <form className="card" style={{ maxWidth: 420, margin: "30px auto" }} onSubmit={submit}>
           <h2>Sign in</h2>
-          <p className="mu">Staff and tenants sign in with the email and password given by the Department Head.</p>
+          <p className="mu">For property management staff. Sign in with the email and password given by the Department Head.</p>
           <label className="ff"><span className="mu">Email</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
           <label className="ff"><span className="mu">Password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
           <button className="cta" disabled={busy} style={{ width: "100%", marginTop: 6 }}>{busy ? "Signing in…" : "Sign in"}</button>
           {err && <p className="err">{err}</p>}
+          <p className="mu" style={{ marginTop: 14 }}>Unit owner or tenant? Use <a href="/myportal">My Portal</a> instead.</p>
         </form>
       </main>
     </>

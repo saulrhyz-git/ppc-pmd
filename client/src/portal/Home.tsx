@@ -1,35 +1,43 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PORTAL_URGENCY, TRADES, type PortalMeDTO, type PortalRequestDTO, type PortalUnitDTO } from "@pmd/shared";
-import { Card, Sheet, Table } from "../ui";
+import { TRADES, type PortalMeDTO, type PortalRequestDTO, type PortalUnitDTO } from "@pmd/shared";
 import { fileUrl, papi } from "./api";
-import { StatusPill, fmtDay, fmtWhen } from "./bits";
+import { Icon, STATUS_TEXT, Sheet, StatusPill, TRADE_EMOJI, TRADE_LABEL, Tracker, firstName, fmtDay, fmtWhen, greeting } from "./bits";
 
+const OPEN = ["Sent", "Received", "In progress"];
 const useRequests = () => useQuery({ queryKey: ["p-requests"], queryFn: () => papi.get<PortalRequestDTO[]>("/requests"), refetchInterval: 60_000 });
 
-function FilesInput({ onChange }: { onChange: (f: File[]) => void }) {
+// ---------- report a problem ----------
+
+function FilesInput({ files, onChange }: { files: File[]; onChange: (f: File[]) => void }) {
   const [err, setErr] = useState("");
   return (
-    <label className="ff">
-      <span className="mu">Photos or PDF (optional, up to 5 files, 10 MB each)</span>
-      <input type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/heic,application/pdf" onChange={(e) => {
-        const list = [...(e.target.files ?? [])];
-        const big = list.find((f) => f.size > 10 * 1024 * 1024);
-        setErr(list.length > 5 ? "Choose at most 5 files" : big ? `${big.name} is larger than 10 MB` : "");
-        onChange(list.slice(0, 5).filter((f) => f.size <= 10 * 1024 * 1024));
-      }} />
-      {err && <span className="err">{err}</span>}
-    </label>
+    <div className="pp-f">
+      <span>Photos (optional)</span>
+      <label className="pp-drop">
+        <span style={{ fontSize: 24 }}>📷</span>
+        <span>{files.length ? <><b>{files.length} file{files.length === 1 ? "" : "s"}</b> attached · tap to change</> : <><b>Add photos</b> or a PDF · up to 5, 10 MB each</>}</span>
+        <input type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/heic,application/pdf" onChange={(e) => {
+          const list = [...(e.target.files ?? [])];
+          const big = list.find((f) => f.size > 10 * 1024 * 1024);
+          setErr(list.length > 5 ? "Choose at most 5 files" : big ? `${big.name} is larger than 10 MB` : "");
+          onChange(list.slice(0, 5).filter((f) => f.size <= 10 * 1024 * 1024));
+        }} />
+      </label>
+      {err && <p className="pp-err">{err}</p>}
+    </div>
   );
 }
 
-function NewRequest({ units, unitId, onDone }: { units: PortalUnitDTO[]; unitId: string; onDone: (r: PortalRequestDTO) => void }) {
+function NewRequest({ units, unitId, onDone }: { units: PortalUnitDTO[]; unitId?: string; onDone: (r: PortalRequestDTO) => void }) {
   const qc = useQueryClient();
-  const [unit, setUnit] = useState(unitId);
-  const [trade, setTrade] = useState<string>("Other");
+  const can = units.filter((u) => u.canRequest);
+  const [unit, setUnit] = useState(unitId && can.some((u) => u.unitId === unitId) ? unitId : can[0]?.unitId ?? "");
+  const [trade, setTrade] = useState<string>("");
   const [location, setLocation] = useState("");
   const [concern, setConcern] = useState("");
-  const [urgency, setUrgency] = useState<string>("Normal");
+  const [urgency, setUrgency] = useState<"Normal" | "Urgent">("Normal");
   const [files, setFiles] = useState<File[]>([]);
   const [err, setErr] = useState("");
   const m = useMutation({
@@ -42,33 +50,46 @@ function NewRequest({ units, unitId, onDone }: { units: PortalUnitDTO[]; unitId:
     onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["p-requests"] }); onDone(r); },
     onError: (e) => setErr((e as Error).message),
   });
-  const submit = (e: FormEvent) => { e.preventDefault(); setErr(""); m.mutate(); };
-  const can = units.filter((u) => u.canRequest);
+  const submit = (e: FormEvent) => { e.preventDefault(); setErr(""); if (!trade) return setErr("Pick what the problem is about"); m.mutate(); };
+  if (!can.length) return <p className="mu">Your access doesn’t include reporting problems. Please contact your property management office.</p>;
   return (
     <form onSubmit={submit}>
-      <label className="ff"><span className="mu">Unit or space</span>
-        <select value={unit} onChange={(e) => setUnit(e.target.value)}>{can.map((u) => <option key={u.unitId} value={u.unitId}>{u.building} · {u.code}</option>)}</select>
+      {can.length > 1 && (
+        <label className="pp-f"><span>Which unit?</span>
+          <select value={unit} onChange={(e) => setUnit(e.target.value)}>{can.map((u) => <option key={u.unitId} value={u.unitId}>{u.building} · Unit {u.code}</option>)}</select>
+        </label>
+      )}
+      <div className="pp-f">
+        <span>What’s the problem about?</span>
+        <div className="pp-cats">
+          {TRADES.map((t) => <button type="button" key={t} className={"pp-cat" + (trade === t ? " on" : "")} onClick={() => setTrade(t)}><span className="em">{TRADE_EMOJI[t]}</span>{TRADE_LABEL[t] ?? t}</button>)}
+        </div>
+      </div>
+      <label className="pp-f"><span>Tell us what’s happening</span>
+        <textarea value={concern} onChange={(e) => setConcern(e.target.value)} required minLength={5} maxLength={4000} placeholder="For example: water is dripping from the bathroom ceiling since this morning." />
       </label>
-      <label className="ff"><span className="mu">What kind of problem?</span>
-        <select value={trade} onChange={(e) => setTrade(e.target.value)}>{TRADES.map((t) => <option key={t}>{t}</option>)}</select>
-      </label>
-      <label className="ff"><span className="mu">Where exactly? (room, area; optional)</span><input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={200} /></label>
-      <label className="ff"><span className="mu">Describe the problem</span><textarea className="in" rows={4} value={concern} onChange={(e) => setConcern(e.target.value)} required minLength={5} maxLength={4000} /></label>
-      <label className="ff"><span className="mu">How urgent is it?</span>
-        <select value={urgency} onChange={(e) => setUrgency(e.target.value)}>{PORTAL_URGENCY.map((u) => <option key={u}>{u}</option>)}</select>
-      </label>
-      {urgency === "Urgent" && <p className="mu">For emergencies such as fire, flooding or someone hurt, call building security or the emergency hotline right away. Do not wait for a reply here.</p>}
-      <FilesInput onChange={setFiles} />
-      <button className="cta" disabled={m.isPending || !unit}>{m.isPending ? "Sending…" : "Send request"}</button>
-      {err && <p className="err">{err}</p>}
+      <label className="pp-f"><span>Where exactly? (optional)</span><input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={200} placeholder="e.g. master bathroom, pantry, main door" /></label>
+      <div className="pp-f">
+        <span>How urgent is it?</span>
+        <div className="pp-seg">
+          <button type="button" className={urgency === "Normal" ? "on" : ""} onClick={() => setUrgency("Normal")}>Can wait a day or two</button>
+          <button type="button" className={"urgent" + (urgency === "Urgent" ? " on" : "")} onClick={() => setUrgency("Urgent")}>Urgent</button>
+        </div>
+        {urgency === "Urgent" && <p className="pp-note">🚨 For emergencies like fire, smoke, flooding, someone trapped in an elevator or someone hurt, call building security or your emergency hotline now. Don’t wait for a reply here.</p>}
+      </div>
+      <FilesInput files={files} onChange={setFiles} />
+      <button className="pp-btn full" disabled={m.isPending || !unit}>{m.isPending ? "Sending…" : "Send to property management"}</button>
+      {err && <p className="pp-err">{err}</p>}
     </form>
   );
 }
 
+// ---------- one request ----------
+
 function Attachments({ list }: { list: { id: string; filename: string; mime: string }[] }) {
   if (!list.length) return null;
   return (
-    <div className="thumbs">
+    <div className="pp-thumbs">
       {list.map((a) => /^image\/(png|jpeg|gif|webp)$/.test(a.mime)
         ? <a key={a.id} href={fileUrl(a.id)} target="_blank" rel="noopener noreferrer"><img src={fileUrl(a.id)} alt={a.filename} /></a>
         : <a key={a.id} href={fileUrl(a.id)} rel="noopener noreferrer">📎 {a.filename}</a>)}
@@ -82,100 +103,174 @@ function RequestView({ id, onClose }: { id: string; onClose: () => void }) {
   const [msg, setMsg] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [err, setErr] = useState("");
-  const [formKey, setFormKey] = useState(0);
   const m = useMutation({
     mutationFn: () => { const f = new FormData(); f.append("message", msg); files.forEach((x) => f.append("files", x)); return papi.post<PortalRequestDTO>(`/requests/${id}/followups`, f); },
-    onSuccess: (r) => { setMsg(""); setFiles([]); setFormKey((k) => k + 1); qc.setQueryData(["p-request", id], r); qc.invalidateQueries({ queryKey: ["p-requests"] }); },
+    onSuccess: (r) => { setMsg(""); setFiles([]); qc.setQueryData(["p-request", id], r); qc.invalidateQueries({ queryKey: ["p-requests"] }); },
     onError: (e) => setErr((e as Error).message),
   });
   const r = q.data;
   return (
-    <Sheet title={r ? `${r.controlNo} · ${r.trade}` : "Request"} onClose={onClose}>
-      {q.isError ? <p className="err">{(q.error as Error).message}</p> : !r ? <p className="mu">Loading…</p> : (
+    <Sheet title={r ? <>{TRADE_EMOJI[r.trade] ?? "📝"} {TRADE_LABEL[r.trade] ?? r.trade}</> : "Request"} onClose={onClose}>
+      {q.isError ? <p className="pp-err">{(q.error as Error).message}</p> : !r ? <p className="mu">Loading…</p> : (
         <>
-          <p><StatusPill s={r.status} /> {r.urgency === "Urgent" && <span className="pill r">Urgent</span>} <span className="mu">{r.building} · Unit {r.unitCode}{r.location ? " · " + r.location : ""}</span></p>
-          <div className="msg tenant">
-            <small>{r.filedBy} · {fmtWhen(r.createdAt)}</small>
-            <div style={{ whiteSpace: "pre-wrap" }}>{r.concern}</div>
-            <Attachments list={r.attachments} />
+          <div className="pp-card" style={{ marginBottom: 0 }}>
+            <div className="pp-row"><StatusPill s={r.status} />{r.urgency === "Urgent" && <span className="pp-st r">Urgent</span>}<span className="mu">Ref. {r.controlNo}</span></div>
+            <p style={{ margin: "10px 0 14px" }}><b>{STATUS_TEXT[r.status] ?? r.status}</b><br /><span className="mu">{r.building} · {r.location || `Unit ${r.unitCode}`}</span></p>
+            <Tracker status={r.status} />
           </div>
-          {r.updates.map((u) => (
-            <div key={u.id} className={"msg " + (u.kind === "followup" ? "tenant" : "staff")}>
-              <small>{u.kind === "status" ? "Update" : u.authorName} · {fmtWhen(u.createdAt)}</small>
-              <div style={{ whiteSpace: "pre-wrap" }}>{u.message}</div>
-              <Attachments list={u.attachments} />
+          {r.workOrders.filter((w) => w.status !== "Cancelled").map((w) => (
+            <div key={w.ticket} className="pp-wo">
+              <span style={{ fontSize: 20 }}>🧰</span>
+              <div style={{ flex: 1 }}><b>Repair scheduled</b><br /><span className="mu">{w.title} · target {fmtDay(w.targetDate)}{w.completedAt ? ` · done ${fmtDay(w.completedAt)}` : ""}</span></div>
+              <StatusPill s={w.status} />
             </div>
           ))}
-          {r.workOrders.length > 0 && (
+          <div className="pp-chat">
+            <div className={"pp-bub " + (r.mine ? "me" : "them")}>
+              <small>{r.filedBy} · {fmtWhen(r.createdAt)}</small>{r.concern}<Attachments list={r.attachments} />
+            </div>
+            {r.updates.map((u) => u.kind === "status"
+              ? <div key={u.id} className="pp-bub sys">{u.message} · {fmtWhen(u.createdAt)}</div>
+              : (
+                <div key={u.id} className={"pp-bub " + (u.mine ? "me" : "them")}>
+                  <small>{u.authorName} · {fmtWhen(u.createdAt)}</small>{u.message}<Attachments list={u.attachments} />
+                </div>
+              ))}
+          </div>
+          {r.status !== "Closed" ? (
             <>
-              <h3>Work orders</h3>
-              <Table head={["Ticket", "Work", "Status", "Target date"]}>
-                {r.workOrders.map((w) => <tr key={w.ticket}><td>{w.ticket}</td><td className="wrap">{w.title}</td><td><StatusPill s={w.status} /></td><td>{fmtDay(w.targetDate)}</td></tr>)}
-              </Table>
+              <label className="pp-f" style={{ marginBottom: 6 }}><span>Send a message</span>
+                <textarea value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={4000} placeholder="Add details, or tell us when you’re home" style={{ minHeight: 70 }} />
+              </label>
+              <FilesInput files={files} onChange={setFiles} />
+              <button className="pp-btn full" disabled={!msg.trim() || m.isPending} onClick={() => { setErr(""); m.mutate(); }}>{m.isPending ? "Sending…" : "Send message"}</button>
+              {err && <p className="pp-err">{err}</p>}
             </>
-          )}
-          {r.status !== "Closed" && (
-            <>
-              <h3>Send a message</h3>
-              <textarea className="in" rows={3} value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={4000} />
-              <FilesInput key={formKey} onChange={setFiles} />
-              <button className="cta" disabled={!msg.trim() || m.isPending} onClick={() => { setErr(""); m.mutate(); }}>{m.isPending ? "Sending…" : "Send"}</button>
-              {err && <p className="err">{err}</p>}
-            </>
-          )}
+          ) : <p className="pp-info">This request is closed. If the problem comes back, please report it again.</p>}
         </>
       )}
     </Sheet>
   );
 }
 
-export default function Home({ me }: { me: PortalMeDTO }) {
+function RequestCard({ r, onOpen }: { r: PortalRequestDTO; onOpen: () => void }) {
+  const lastReply = [...r.updates].reverse().find((u) => u.kind === "response");
+  return (
+    <button className="pp-req" onClick={onOpen}>
+      <div className="top">
+        <span className="em">{TRADE_EMOJI[r.trade] ?? "📝"}</span>
+        <h3 style={{ flex: 1, minWidth: 0 }}>{TRADE_LABEL[r.trade] ?? r.trade}</h3>
+        {r.urgency === "Urgent" && <span className="pp-st r">Urgent</span>}
+        <StatusPill s={r.status} />
+      </div>
+      <span className="mu" style={{ fontSize: 12, display: "block", marginTop: 4 }}>Unit {r.unitCode} · sent {fmtDay(r.createdAt)} · Ref. {r.controlNo}</span>
+      <div className="txt">{r.concern}</div>
+      {lastReply && <div className="pp-info" style={{ marginBottom: 12 }}>💬 <b>Property management:</b> {lastReply.message.slice(0, 120)}{lastReply.message.length > 120 ? "…" : ""}</div>}
+      <Tracker status={r.status} />
+    </button>
+  );
+}
+
+function RequestList({ list, onOpen, empty }: { list: PortalRequestDTO[]; onOpen: (id: string) => void; empty: string }) {
+  if (!list.length) return <div className="pp-card pp-empty"><div className="big">✨</div><p>{empty}</p></div>;
+  return <>{list.map((r) => <RequestCard key={r.id} r={r} onOpen={() => onOpen(r.id)} />)}</>;
+}
+
+// ---------- pages ----------
+
+function NoUnits() {
+  return (
+    <div className="pp-card pp-empty">
+      <div className="big">🏢</div>
+      <h2>No units linked yet</h2>
+      <p>Your account isn’t linked to a unit or space right now. If you think this is a mistake, please contact your property management office.</p>
+    </div>
+  );
+}
+
+export function HomePage({ me }: { me: PortalMeDTO }) {
   const q = useRequests();
-  const [newFor, setNewFor] = useState<string | null>(null);
+  const [reporting, setReporting] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
-  const [unitFilter, setUnitFilter] = useState("");
-  const list = (q.data ?? []).filter((r) => !unitFilter || r.unitId === unitFilter);
-  // Count open requests from the live list, so the number updates as soon as a request is filed.
-  const openFor = (unitId: string) => q.data ? q.data.filter((r) => r.unitId === unitId && ["Sent", "Received", "In progress"].includes(r.status)).length : me.units.find((u) => u.unitId === unitId)?.openRequests ?? 0;
-  if (!me.units.length) {
-    return <Card title="No units yet"><p className="mu">Your account is not linked to any unit or space at the moment. If you think this is a mistake, please contact property management.</p></Card>;
-  }
+  const all = q.data ?? [];
+  const open = all.filter((r) => OPEN.includes(r.status));
+  const openFor = (unitId: string) => (q.data ? open.filter((r) => r.unitId === unitId).length : me.units.find((u) => u.unitId === unitId)?.openRequests ?? 0);
+  const canReport = me.units.some((u) => u.canRequest);
   return (
     <>
-      <Card title="My units and spaces">
-        <div className="pu">
-          {me.units.map((u) => (
-            <div key={u.unitId} className="unit">
-              <span className="mu">{u.building}</span>
-              <b>Unit {u.code}</b>
-              <span className="mu">{u.kind}{u.floor ? ` · Floor ${u.floor}` : ""} · {u.relation}</span>
-              {u.endsOn && <span className="mu" style={{ display: "block" }}>Access until {fmtDay(u.endsOn)}</span>}
-              <div className="row">
-                <button className="lnk" onClick={() => setUnitFilter(unitFilter === u.unitId ? "" : u.unitId)}>{openFor(u.unitId)} open request{openFor(u.unitId) === 1 ? "" : "s"}</button>
-                <span className="spacer" />
-                {u.canRequest && <button className="cta sm" onClick={() => setNewFor(u.unitId)}>+ New request</button>}
+      <section className="pp-hero">
+        <h1>{greeting()}, {firstName(me.name)}</h1>
+        <p>{!me.units.length ? "Welcome to My Portal." : open.length ? `You have ${open.length} open request${open.length === 1 ? "" : "s"}. We’ll keep you posted here.` : "Everything looks good. If something needs fixing, let us know."}</p>
+        {canReport && <button className="pp-btn" onClick={() => setReporting("")}>＋ Report a problem</button>}
+      </section>
+
+      {!me.units.length ? <NoUnits /> : (
+        <>
+          <div className="pp-quick">
+            {canReport && <button className="pp-q" onClick={() => setReporting("")}><div className="ic"><Icon name="wrench" /></div><b>Report a problem</b><span>Leak, aircon, power, doors and more</span></button>}
+            <Link className="pp-q" to="/requests"><div className="ic"><Icon name="list" /></div><b>My requests</b><span>{open.length} open · {all.length} in total</span></Link>
+            <Link className="pp-q" to="/account"><div className="ic"><Icon name="shield" /></div><b>Account & security</b><span>{me.mfaEnabled ? "Two-step sign-in is on" : "Turn on two-step sign-in"}</span></Link>
+          </div>
+
+          <div className="pp-sec"><h2>My {me.units.length === 1 ? "unit" : "units"}</h2></div>
+          <div className="pp-units">
+            {me.units.map((u) => (
+              <div key={u.unitId} className="pp-unit">
+                <div className="ic"><Icon name={/commercial|space|office|retail/i.test(u.kind) ? "store" : "building"} /></div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span className="mu">{u.building}</span>
+                  <h3>Unit {u.code}</h3>
+                  <span className="mu">{u.kind}{u.floor ? ` · Floor ${u.floor}` : ""}</span>
+                  <div className="tags">
+                    <span className="pp-tag">{u.relation}</span>
+                    {openFor(u.unitId) > 0 && <span className="pp-tag or">{openFor(u.unitId)} open</span>}
+                    {u.endsOn && <span className="pp-tag">Access until {fmtDay(u.endsOn)}</span>}
+                  </div>
+                  {u.canRequest && <button className="pp-link" style={{ marginTop: 10 }} onClick={() => setReporting(u.unitId)}>Report a problem here →</button>}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-      <Card title="Requests" right={unitFilter && <button className="lnk" onClick={() => setUnitFilter("")}>Show all units</button>}
-        sub={me.units.some((u) => !u.seeAllRequests) ? "You see the requests you filed. Owners also see requests filed by others for their unit." : undefined}>
-        {q.isLoading ? <p className="mu">Loading…</p> : q.isError ? <p className="err">{(q.error as Error).message}</p> : !list.length ? <p className="mu">No requests yet. Use “+ New request” on a unit to report a problem.</p> : (
-          list.map((r) => (
-            <div key={r.id} className="er" role="button" tabIndex={0} onClick={() => setSel(r.id)} onKeyDown={(e) => e.key === "Enter" && setSel(r.id)}>
-              <div className="row"><b style={{ display: "inline" }}>{r.controlNo}</b><span className="mu">{r.building} · Unit {r.unitCode}</span><span className="spacer" />{r.urgency === "Urgent" && <span className="pill r">Urgent</span>}<StatusPill s={r.status} /></div>
-              <div style={{ marginTop: 4 }}>{r.trade}: {r.concern.slice(0, 140)}{r.concern.length > 140 ? "…" : ""}</div>
-              <span className="mu">Filed {fmtDay(r.createdAt)} by {r.filedBy}{r.updates.some((u) => u.kind === "response") ? " · has a reply" : ""}</span>
-            </div>
-          ))
-        )}
-      </Card>
-      {newFor && (
-        <Sheet title="New request" onClose={() => setNewFor(null)}>
-          <NewRequest units={me.units} unitId={newFor} onDone={(r) => { setNewFor(null); setSel(r.id); }} />
-        </Sheet>
+            ))}
+          </div>
+
+          <div className="pp-sec"><h2>Recent requests</h2><span className="pp-sp" />{all.length > 3 && <Link to="/requests" className="pp-link" style={{ textDecoration: "none" }}>See all</Link>}</div>
+          {q.isLoading ? <p className="mu">Loading…</p> : q.isError ? <p className="pp-err">{(q.error as Error).message}</p>
+            : <RequestList list={all.slice(0, 3)} onOpen={setSel} empty="No requests yet. When something needs fixing, tap “Report a problem”." />}
+        </>
       )}
+      <p className="pp-foot">For emergencies, call building security or your emergency hotline right away.</p>
+
+      {reporting !== null && <Sheet title="Report a problem" onClose={() => setReporting(null)}><NewRequest units={me.units} unitId={reporting || undefined} onDone={(r) => { setReporting(null); setSel(r.id); }} /></Sheet>}
+      {sel && <RequestView id={sel} onClose={() => setSel(null)} />}
+    </>
+  );
+}
+
+export function RequestsPage({ me }: { me: PortalMeDTO }) {
+  const q = useRequests();
+  const [show, setShow] = useState<"open" | "done" | "all">("open");
+  const [unit, setUnit] = useState("");
+  const [reporting, setReporting] = useState(false);
+  const [sel, setSel] = useState<string | null>(null);
+  const list = (q.data ?? []).filter((r) => (!unit || r.unitId === unit) && (show === "all" || (show === "open") === OPEN.includes(r.status)));
+  const canReport = me.units.some((u) => u.canRequest);
+  if (!me.units.length) return <NoUnits />;
+  return (
+    <>
+      <div className="pp-sec" style={{ marginTop: 4 }}><h2 style={{ fontSize: 22 }}>My requests</h2><span className="pp-sp" />{canReport && <button className="pp-btn sm" onClick={() => setReporting(true)}>＋ Report a problem</button>}</div>
+      {me.units.some((u) => !u.seeAllRequests) && <p className="mu">You see the requests you sent. Unit owners also see requests others sent for their unit.</p>}
+      <div className="pp-chips">
+        {([["open", "Open"], ["done", "Finished"], ["all", "All"]] as const).map(([k, label]) => <button key={k} className={"pp-chip" + (show === k ? " on" : "")} onClick={() => setShow(k)}>{label}</button>)}
+        {me.units.length > 1 && (
+          <>
+            <span style={{ width: 8 }} />
+            <button className={"pp-chip" + (!unit ? " on" : "")} onClick={() => setUnit("")}>All units</button>
+            {me.units.map((u) => <button key={u.unitId} className={"pp-chip" + (unit === u.unitId ? " on" : "")} onClick={() => setUnit(u.unitId)}>{u.code}</button>)}
+          </>
+        )}
+      </div>
+      {q.isLoading ? <p className="mu">Loading…</p> : q.isError ? <p className="pp-err">{(q.error as Error).message}</p>
+        : <RequestList list={list} onOpen={setSel} empty={show === "open" ? "Nothing open right now." : "No requests here yet."} />}
+      {reporting && <Sheet title="Report a problem" onClose={() => setReporting(false)}><NewRequest units={me.units} unitId={unit || undefined} onDone={(r) => { setReporting(false); setSel(r.id); }} /></Sheet>}
       {sel && <RequestView id={sel} onClose={() => setSel(null)} />}
     </>
   );

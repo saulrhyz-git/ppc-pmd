@@ -4,7 +4,7 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
-import { PORTAL_RELATIONS, type PortalAccountAdminDTO, type PortalLinkDTO } from "@pmd/shared";
+import { PORTAL_PATH, PORTAL_RELATIONS, type PortalAccountAdminDTO, type PortalLinkDTO } from "@pmd/shared";
 import { prisma, audit, scopeOf } from "../db.ts";
 import { HttpError, requireTab, staffOnly } from "../auth.ts";
 import { hashToken, randomToken } from "./security.ts";
@@ -73,7 +73,7 @@ async function issueLink(req: Request, accountId: string, purpose: "invite" | "r
   const expiresAt = new Date(Date.now() + (purpose === "invite" ? INVITE_HOURS : RESET_HOURS) * 3_600_000);
   await prisma.portalToken.create({ data: { accountId, purpose, tokenHash: hashToken(token), expiresAt, createdById: req.user!.id } });
   // The token goes after "#", so browsers never send it to the server in the URL, logs or Referer.
-  return { url: `${baseUrl(req)}/portal/welcome#t=${token}`, expiresAt: expiresAt.toISOString() };
+  return { url: `${baseUrl(req)}${PORTAL_PATH}/welcome#t=${token}`, expiresAt: expiresAt.toISOString() };
 }
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-12-31");

@@ -50,7 +50,7 @@ async function main() {
   r = await staff.call("POST", "/api/portal-admin/invite", { email: emailA, name: "Ana Owner", unitId: UNIT_A, relation: "Owner" });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   const linkA: string = r.json.link.url;
-  assert.match(linkA, /\/portal\/welcome#t=/);
+  assert.match(linkA, /\/myportal\/welcome#t=/);
   ok("invite creates a one-time link with the token after #");
   r = await staff.call("POST", "/api/portal-admin/invite", { email: emailB, name: "Ben Tenant", unitId: UNIT_B, relation: "Tenant" });
   const linkB: string = r.json.link.url;

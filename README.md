@@ -46,7 +46,7 @@ Limits are stored in the `meterThresholds` setting (defaults in `shared/src/mete
 in the response time; marking it Resolved or Closed fills the resolution and closing dates, so the concern KPIs
 update automatically.
 
-## Owner & tenant portal (`/portal`)
+## Owner & tenant portal (`/myportal`)
 
 A separate, public-facing site for unit owners, tenants, occupants and their representatives. They see only the
 units staff give them access to, file job requests with photos, follow replies and work order status, and message
@@ -83,10 +83,17 @@ disable the account (which signs them out at once). Every action is in the chang
 - Uploads: photos and PDF only, checked by file content rather than name, 10 MB and 5 files each; downloads are
   permission-checked and served sandboxed.
 
-**Putting it on the internet.** Serve it over HTTPS only, with `COOKIE_SECURE=1`, and `TRUST_PROXY=1` behind nginx
-(otherwise every visitor shares one rate limit). To expose only the portal, publish `/portal`, `/api/portal/`,
-`/assets/` and `/favicon.svg` and keep everything else on the internal network. Set `PORTAL_PUBLIC_URL` and
-`PORTAL_SECRET` (see `.env.example`).
+**Putting it on the internet.** The portal lives on the main site at `https://<your domain>/myportal` (no subdomain
+needed). Serve the site over HTTPS only, set `COOKIE_SECURE=1`, `TRUST_PROXY=1` behind nginx (otherwise every visitor
+shares one rate limit), and `PORTAL_PUBLIC_URL=https://<your domain>` (without `/myportal`) plus `PORTAL_SECRET` in
+`.env`. The portal page calls the API at `/api/portal/`. If the staff app should stay internal-only on the same
+domain, let nginx allow `/myportal`, `/api/portal/`, `/assets/` and `/favicon.svg` from the internet and restrict
+everything else to your office network or VPN, for example:
+
+```nginx
+location ~ ^/(myportal|api/portal/|assets/|favicon\.svg) { proxy_pass http://127.0.0.1:3000; }
+location / { allow 10.0.0.0/8; allow 192.168.0.0/16; deny all; proxy_pass http://127.0.0.1:3000; }
+```
 
 `server/scripts/portal-smoke.ts` runs 22 end-to-end security checks against a development server and database.
 

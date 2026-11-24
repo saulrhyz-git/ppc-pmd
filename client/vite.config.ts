@@ -2,12 +2,12 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { resolve } from "node:path";
 
-/** In development, serve the separate portal page for /portal and /portal/... (the server does this in production). */
+/** In development, serve the separate portal page for /myportal and /myportal/... (the server does this in production). */
 const portalPage = (): Plugin => ({
   name: "portal-page",
   configureServer(server) {
     server.middlewares.use((req, _res, next) => {
-      if (req.url && /^\/portal(\/|$|\?|#)/.test(req.url) && !req.url.startsWith("/portal.html")) req.url = "/portal.html";
+      if (req.url && /^\/myportal(\/|$|\?|#)/.test(req.url) && !req.url.startsWith("/portal.html")) req.url = "/portal.html";
       next();
     });
   },
