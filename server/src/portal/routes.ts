@@ -10,8 +10,8 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import type { Prisma, PortalAccount } from "@prisma/client";
 import {
-  PORTAL_URGENCY, TRADES, passwordProblem,
-  type PortalMeDTO, type PortalRelation, type PortalRequestDTO, type PortalSessionDTO, type PortalUnitDTO, type PortalUrgency,
+  MD, PORTAL_URGENCY, TRADES, passwordProblem, runMeters, useBetween,
+  type EngineEvent, type EngineMeter, type EngineReading, type PortalMeDTO, type PortalMeterDTO, type PortalRelation, type PortalRequestDTO, type PortalSessionDTO, type PortalUnitDTO, type PortalUrgency,
 } from "@pmd/shared";
 import { prisma } from "../db.ts";
 import { HttpError } from "../auth.ts";
@@ -413,6 +413,74 @@ account.post("/sessions/revoke-others", async (req, res, next) => {
 // ---------- units and requests (two-step sign-in may be required first) ----------
 const data = Router();
 portalRouter.use(requireMfaIfMandatory, data);
+
+// ---------- meters: read-only, only the unit's own meters ----------
+const PORTAL_MONTHS = 6;
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
+data.get("/meters", async (req, res, next) => {
+  try {
+    const access = await activeAccess(req.portal!.account.id);
+    const today = localToday();
+    // Only "Tenant" class meters linked to a unit the person can see now. Common area and utility
+    // main meters are never shown, even if someone links one to a unit.
+    const meters = await prisma.meter.findMany({
+      where: { unitId: { in: access.map((a) => a.unitId) }, meterClass: "Tenant", activeFrom: { lte: new Date(today) } },
+      include: { unit: { include: { property: true } } },
+      orderBy: { code: "asc" },
+    });
+    if (!meters.length) return res.json([]);
+    const month = today.slice(0, 7);
+    const months = [month];
+    while (months.length < PORTAL_MONTHS) months.unshift(MD.prevMonth(months[0]));
+    const from = MD.monthRange(months[0])[0];
+    const histFrom = MD.add(from, -45); // a starting reading before the first month
+    const ids = meters.map((m) => m.id);
+    const [rows, evs] = await Promise.all([
+      prisma.meterReading.findMany({ where: { meterId: { in: ids }, voidedAt: null, readingDate: { gte: new Date(histFrom), lte: new Date(today) } }, select: { id: true, meterId: true, readingDate: true, value: true } }),
+      prisma.meterEvent.findMany({ where: { meterId: { in: ids }, date: { gte: new Date(histFrom), lte: new Date(today) } }, select: { meterId: true, date: true, type: true, prevReading: true, newReading: true } }),
+    ]);
+    const readings: EngineReading[] = rows.map((r) => ({ id: r.id, meterId: r.meterId, date: isoDay(r.readingDate), value: Number(r.value) }));
+    const events: EngineEvent[] = evs.map((e) => ({ meterId: e.meterId, date: isoDay(e.date), type: e.type, prevReading: e.prevReading == null ? null : Number(e.prevReading), newReading: e.newReading == null ? null : Number(e.newReading) }));
+    const em: EngineMeter[] = meters.map((m) => ({
+      id: m.id, code: m.code, meterClass: "Tenant", multiplier: Number(m.multiplier), rolloverAt: m.rolloverAt == null ? null : Number(m.rolloverAt),
+      expectedDaily: m.expectedDaily, activeFrom: isoDay(m.activeFrom), activeTo: m.activeTo ? isoDay(m.activeTo) : null, propertyId: m.propertyId,
+    }));
+    const run = runMeters(em, readings, events, { from, to: today });
+    const out: PortalMeterDTO[] = meters.map((m) => {
+      const r = run.meters[m.id];
+      const lastDate = r.last?.date ?? today;
+      const [ms] = MD.monthRange(month);
+      const [ps] = MD.monthRange(MD.prevMonth(month));
+      const mtd = lastDate >= ms ? useBetween(r, ms, lastDate).use : 0;
+      const same = lastDate >= ms ? useBetween(r, ps, MD.add(ps, MD.diff(ms, lastDate))).use : 0;
+      const byReading = new Map(r.intervals.filter((iv) => iv.counted).map((iv) => [iv.readingId, iv]));
+      const recent = readings.filter((x) => x.meterId === m.id && x.date >= from).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14)
+        .map((x) => { const iv = byReading.get(x.id); return { date: x.date, value: x.value, use: iv ? iv.use : null, days: iv ? iv.days : null }; });
+      return {
+        id: m.id, code: m.code, unitId: m.unitId!, unitCode: m.unit!.code, building: m.unit!.property.name,
+        utility: m.utility, unitOfMeasure: m.unitOfMeasure, location: m.location,
+        last: r.last, monthToDate: mtd, lastMonthSameDays: same,
+        changePct: same > 0 ? Math.round(((mtd - same) / same) * 1000) / 10 : null,
+        months: months.map((mo) => {
+          const [a, b] = MD.monthRange(mo);
+          // null = no readings cover that month (meter not read yet), which is different from zero use.
+          const covered = r.intervals.some((iv) => iv.counted && iv.date >= a && iv.prevDate < b);
+          const u = useBetween(r, a, b < today ? b : today);
+          return { month: mo, use: covered ? u.use : null, estimatedDays: u.estimatedDays };
+        }),
+        recent,
+      };
+    });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+});
 
 data.get("/requests", async (req, res, next) => {
   try {

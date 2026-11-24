@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TRADES, type PortalMeDTO, type PortalRequestDTO, type PortalUnitDTO } from "@pmd/shared";
 import { fileUrl, papi } from "./api";
+import { useMeters } from "./Meters";
 import { Icon, STATUS_TEXT, Sheet, StatusPill, TRADE_EMOJI, TRADE_LABEL, Tracker, firstName, fmtDay, fmtWhen, greeting } from "./bits";
 
 const OPEN = ["Sent", "Received", "In progress"];
@@ -190,6 +191,7 @@ function NoUnits() {
 
 export function HomePage({ me }: { me: PortalMeDTO }) {
   const q = useRequests();
+  const meters = useMeters().data ?? [];
   const [reporting, setReporting] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const all = q.data ?? [];
@@ -226,6 +228,9 @@ export function HomePage({ me }: { me: PortalMeDTO }) {
                     {openFor(u.unitId) > 0 && <span className="pp-tag or">{openFor(u.unitId)} open</span>}
                     {u.endsOn && <span className="pp-tag">Access until {fmtDay(u.endsOn)}</span>}
                   </div>
+                  {meters.filter((m) => m.unitId === u.unitId).map((m) => (
+                    <Link key={m.id} to="/meters" className="pp-mline">{m.utility === "Water" ? "💧" : "⚡"} <b>{m.monthToDate.toLocaleString("en-US", { maximumFractionDigits: 1 })} {m.unitOfMeasure}</b> this month{m.changePct != null && Math.abs(m.changePct) >= 1 ? <span className={m.changePct > 0 ? "up" : "down"}> {m.changePct > 0 ? "▲" : "▼"}{Math.abs(m.changePct)}%</span> : null}</Link>
+                  ))}
                   {u.canRequest && <button className="pp-link" style={{ marginTop: 10 }} onClick={() => setReporting(u.unitId)}>Report a problem here →</button>}
                 </div>
               </div>

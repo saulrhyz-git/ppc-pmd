@@ -6,6 +6,7 @@ import { papi, setSignedOutHandler } from "./api";
 import { Icon, ThemeToggle, initials } from "./bits";
 import { HomePage, RequestsPage } from "./Home";
 import Account from "./Account";
+import MetersPage from "./Meters";
 
 type State = { state: "loading" } | { state: "none" } | { state: "mfa" } | { state: "ok"; me: PortalMeDTO };
 
@@ -35,6 +36,7 @@ export default function PortalApp() {
             <Routes>
               <Route index element={mustSecure ? <Navigate to="/account" replace /> : <HomePage me={s.me} />} />
               <Route path="requests" element={mustSecure ? <Navigate to="/account" replace /> : <RequestsPage me={s.me} />} />
+              <Route path="meters" element={mustSecure ? <Navigate to="/account" replace /> : <MetersPage me={s.me} />} />
               <Route path="account" element={<Account me={s.me} onChanged={refresh} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -47,7 +49,7 @@ export default function PortalApp() {
 
 // ---------- signed-in layout ----------
 
-const LINKS: [string, string, string][] = [["/", "Home", "home"], ["/requests", "My requests", "list"], ["/account", "Account", "user"]];
+const LINKS: [string, string, string][] = [["/", "Home", "home"], ["/requests", "My requests", "list"], ["/meters", "Meters", "meter"], ["/account", "Account", "user"]];
 
 function BrandMark() {
   return <><span className="pp-logo"><Icon name="building" /></span><span>My Portal<small>PPC Property Management</small></span></>;

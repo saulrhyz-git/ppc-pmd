@@ -158,3 +158,27 @@ export interface PortalLinkDTO {
   url: string;
   expiresAt: string;
 }
+
+/** A unit's own (Tenant-class) meter as the portal shows it: read-only, valid readings only. */
+export interface PortalMeterDTO {
+  id: string;
+  code: string;
+  unitId: string;
+  unitCode: string;
+  building: string;
+  utility: string;
+  unitOfMeasure: string;
+  location: string;
+  /** Latest valid reading. */
+  last: { date: string; value: number } | null;
+  /** Use from the 1st of this month to the latest reading date. */
+  monthToDate: number;
+  /** Use over the same number of days last month, for a fair comparison. */
+  lastMonthSameDays: number;
+  /** Percent change of monthToDate vs lastMonthSameDays; null when last month had no use. */
+  changePct: number | null;
+  /** Oldest first, ending with this month. `use` is null when no readings cover the month. `estimatedDays` counts days spread from a multi-day gap. */
+  months: { month: string; use: number | null; estimatedDays: number }[];
+  /** Newest first. `use` is the consumption since the reading before; null for a meter's first reading. */
+  recent: { date: string; value: number; use: number | null; days: number | null }[];
+}
