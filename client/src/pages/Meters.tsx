@@ -1,5 +1,5 @@
 // Meter readings: the technicians' daily round sheet, exceptions, monthly use and energy balance,
-// the meter list and each meter's history. Checks run on the server with the shared engine.
+// and each meter's history. The meter list itself is a catalog on the Configuration screen. Checks run on the server with the shared engine.
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,10 +45,10 @@ const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${St
 const n = (x: number | null | undefined, d = 1) => (x == null || !isFinite(x) ? "–" : x.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: d }));
 const monthLabel = (k: string) => new Date(k + "-01T00:00").toLocaleDateString("en-GB", { month: "short", year: "numeric" });
 const SEV_CLASS: Record<string, string> = { Critical: "r", High: "r", Warning: "a" };
-const VIEWS = [["round", "Daily readings"], ["exceptions", "Exceptions"], ["monthly", "Monthly use"], ["meters", "Meter list"]] as const;
+const VIEWS = [["round", "Daily readings"], ["exceptions", "Exceptions"], ["monthly", "Monthly use"]] as const;
 type View = (typeof VIEWS)[number][0];
 
-function useCanManage() {
+export function useCanManage() {
   const { user } = useAuth();
   return !!user && (user.tabs.mtr ?? 0) >= 2 && isMeterManager(user.role);
 }
@@ -58,7 +58,7 @@ export default function Meters() {
   const { building } = useFilter();
   const buildings = useBuildings();
   const [params, setParams] = useSearchParams();
-  const [view, setView] = useState<View>(() => (sessionStorage.getItem("pmd.meterView") as View) || "round");
+  const [view, setView] = useState<View>(() => { const v = sessionStorage.getItem("pmd.meterView"); return VIEWS.some(([k]) => k === v) ? (v as View) : "round"; });
   const [date, setDate] = useState(localToday);
   const list = buildings.data ?? [];
   const [pid, setPid] = useState("");
@@ -76,6 +76,7 @@ export default function Meters() {
   const pick = (v: View) => { sessionStorage.setItem("pmd.meterView", v); setView(v); };
   const meterId = params.get("meter");
   const canWrite = (user?.tabs.mtr ?? 0) >= 2;
+  const canManage = useCanManage();
 
   return (
     <>
@@ -83,7 +84,9 @@ export default function Meters() {
         title="Meter readings"
         sub={user?.role === "Technician" ? "Read each meter once a day and enter the register value. The system works out the use and flags anything that looks wrong so you can re-read on the spot." : "Daily meter readings for each building: completeness, exceptions, monthly use per unit and the energy balance against the utility main meter."}
       >
-        <div className="row" style={{ flexWrap: "wrap" }}>
+        <div className="row toolbar">
+          <div className="tabs" style={{ margin: 0 }}>{VIEWS.map(([k, l]) => <button key={k} className={view === k ? "on" : ""} onClick={() => pick(k)}>{l}</button>)}</div>
+          <span className="spacer" />
           {list.length > 1 && (
             <select className="in" style={{ width: "auto" }} value={pid} onChange={(e) => setPid(e.target.value)} aria-label="Building">
               {list.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -91,8 +94,8 @@ export default function Meters() {
           )}
           <input className="in" type="date" value={date} max={localToday()} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Reading date" />
           {date !== localToday() && <button className="lnk" onClick={() => setDate(localToday())}>Today</button>}
+          {canManage && <Link to="/configuration?s=meters" className="mu">Meter list in Configuration →</Link>}
         </div>
-        <div className="tabs" style={{ marginTop: 8 }}>{VIEWS.map(([k, l]) => <button key={k} className={view === k ? "on" : ""} onClick={() => pick(k)}>{l}</button>)}</div>
       </Card>
       {buildings.error ? <ErrorBox error={buildings.error} /> : !list.length ? <div className="card"><p className="mu">You have no buildings assigned.</p></div>
         : board.error ? <ErrorBox error={board.error} /> : !board.data ? <div className="card"><p className="mu">Loading…</p></div> : (
@@ -101,7 +104,6 @@ export default function Meters() {
             {view === "round" && <RoundSheet b={board.data} canWrite={canWrite} onOpen={(id) => setParams({ meter: id })} />}
             {view === "exceptions" && <Exceptions b={board.data} onOpen={(id) => setParams({ meter: id })} />}
             {view === "monthly" && <Monthly b={board.data} onOpen={(id) => setParams({ meter: id })} />}
-            {view === "meters" && <MeterList b={board.data} onOpen={(id) => setParams({ meter: id })} />}
           </>
         )}
       {meterId && <MeterSheet id={meterId} onClose={() => setParams({}, { replace: true })} />}
@@ -189,9 +191,9 @@ function RoundSheet({ b, canWrite, onOpen }: { b: Board; canWrite: boolean; onOp
         <span className="spacer" />
         {canWrite && pending > 1 && <button className="cta sm" disabled={busy} onClick={saveAll}>{busy ? "Saving…" : `Save ${pending} readings`}</button>}
       </div>
-      {!b.meters.length ? <p className="mu">No meters in this building yet. A supervisor or engineer adds them under Meter list.</p>
+      {!b.meters.length ? <p className="mu">No meters in this building yet. A supervisor or engineer adds them under Configuration, Meters.</p>
         : !meters.length ? <p className="okmsg">Every meter has a reading for {fmtDate(b.date)}.</p> : (
-          <div>
+          <div className="ergrid">
             {meters.map((m) => {
               const e = entries[m.id];
               return (
@@ -324,30 +326,8 @@ function Monthly({ b, onOpen }: { b: Board; onOpen: (id: string) => void }) {
   );
 }
 
-// ---------------- meter list ----------------
-function MeterList({ b, onOpen }: { b: Board; onOpen: (id: string) => void }) {
-  const canManage = useCanManage();
-  const [adding, setAdding] = useState(false);
-  return (
-    <div className="card">
-      <div className="row"><h2 style={{ margin: 0 }}>Meters in {b.property.name}</h2><span className="spacer" />{canManage && <button className="cta sm" onClick={() => setAdding(true)}>+ Meter</button>}</div>
-      {!b.meters.length ? <p className="mu">No meters yet.</p> : (
-        <Table head={["Meter", "Class", "Unit / occupant", "Utility", "Serial", "CT / multiplier", "Active", "Read daily"]}>
-          {b.meters.map((m) => (
-            <tr key={m.id} className="click" onClick={() => onOpen(m.id)} style={m.active ? undefined : { opacity: 0.55 }}>
-              <td><b>{m.code}</b></td><td>{m.meterClass}</td><td className="wrap">{m.unitCode ? `${m.unitCode}${m.occupant ? " · " + m.occupant : ""}` : "–"}</td>
-              <td>{m.utility} ({m.unitOfMeasure})</td><td>{m.serial || "–"}</td><td>{[m.ctRatio, m.multiplier !== 1 ? `× ${m.multiplier}` : ""].filter(Boolean).join(" ") || "–"}</td>
-              <td>{fmtDate(m.activeFrom)}{m.activeTo ? ` – ${fmtDate(m.activeTo)}` : ""}</td><td>{m.expectedDaily ? "Yes" : "No"}</td>
-            </tr>
-          ))}
-        </Table>
-      )}
-      {adding && <MeterEditor propertyId={b.property.id} property={b.property.name} onClose={() => setAdding(false)} />}
-    </div>
-  );
-}
-
-function MeterEditor({ meter, propertyId, property, onClose }: { meter?: MeterDTO; propertyId: string; property: string; onClose: () => void }) {
+// ---------------- meter editor (used from Configuration) ----------------
+export function MeterEditor({ meter, propertyId, property, onClose }: { meter?: MeterDTO; propertyId: string; property: string; onClose: () => void }) {
   const qc = useQueryClient();
   const lookup = useQuery({ queryKey: ["asset-lookup", property], queryFn: () => api.get<{ units: { id: string; code: string; tenantName: string; ownerName: string }[]; assets: { id: string; tag: string; name: string }[] }>(`/assets/lookup?property=${encodeURIComponent(property)}`) });
   const [f, setF] = useState(() => ({
@@ -411,7 +391,7 @@ function UseChart({ intervals, baseline }: { intervals: Interval[]; baseline: nu
   );
 }
 
-function MeterSheet({ id, onClose }: { id: string; onClose: () => void }) {
+export function MeterSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const q = useQuery({ queryKey: ["meter", id], queryFn: () => api.get<MeterHistory>(`/meters/${id}?days=120`) });
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -435,7 +415,7 @@ function MeterSheet({ id, onClose }: { id: string; onClose: () => void }) {
           <dl className="kv">
             <dt>Building</dt><dd>{d.meter.property}{d.meter.location ? " · " + d.meter.location : ""}</dd>
             <dt>Class</dt><dd>{d.meter.meterClass} · {d.meter.utility} ({d.meter.unitOfMeasure})</dd>
-            {d.meter.unitCode && <><dt>Unit / space</dt><dd><Link to={`/assets?unit=${d.meter.unitId}`}>{d.meter.unitCode}</Link>{d.meter.occupant ? " · " + d.meter.occupant : ""}</dd></>}
+            {d.meter.unitCode && <><dt>Unit / space</dt><dd><Link to={`/configuration?unit=${d.meter.unitId}`}>{d.meter.unitCode}</Link>{d.meter.occupant ? " · " + d.meter.occupant : ""}</dd></>}
             {(d.meter.serial || d.meter.brand) && <><dt>Serial / brand</dt><dd>{[d.meter.serial, d.meter.brand].filter(Boolean).join(" · ")}</dd></>}
             {(d.meter.ctRatio || d.meter.multiplier !== 1) && <><dt>CT / multiplier</dt><dd>{[d.meter.ctRatio, `× ${d.meter.multiplier}`].filter(Boolean).join(" · ")}</dd></>}
             <dt>Active</dt><dd>{fmtDate(d.meter.activeFrom)}{d.meter.activeTo ? ` to ${fmtDate(d.meter.activeTo)}` : ""}{d.meter.expectedDaily ? " · read daily" : ""}</dd>

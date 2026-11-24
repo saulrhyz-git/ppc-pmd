@@ -74,15 +74,48 @@ assetsRouter.get("/buildings", canRead, async (req, res, next) => {
   }
 });
 
+const buildingFields = {
+  kind: z.enum(BUILDING_KINDS), code: z.string().trim().max(20), address: z.string().trim().max(300), floors: z.number().int().min(0).max(300).nullable(), notes: z.string().max(4000),
+  section: z.string().trim().max(100).nullable(),
+};
+/** Section name to id. Only the Department Head assigns sections, because sections decide who sees a building. */
+async function sectionId(req: Request, name: string | null) {
+  if (req.user!.role !== "Department Head") throw new HttpError(403, "Only the Department Head can assign a building to a section");
+  if (!name) return null;
+  const sec = await prisma.section.findUnique({ where: { name } });
+  if (!sec) throw new HttpError(400, `There is no section called "${name}"`);
+  return sec.id;
+}
+
+// Adding a building by hand. Department Head only, like the old Settings form, since a new
+// building changes everyone's scope and the dashboards.
+assetsRouter.post("/buildings", canWrite, async (req, res, next) => {
+  try {
+    if (req.user!.role !== "Department Head") throw new HttpError(403, "Only the Department Head can add buildings");
+    const b = z.object({
+      name: z.string().trim().min(2, "Give the building a name").max(100),
+      section: buildingFields.section.default(null), kind: buildingFields.kind.default("Commercial"), code: buildingFields.code.default(""),
+      address: buildingFields.address.default(""), floors: buildingFields.floors.default(null), notes: buildingFields.notes.default(""),
+    }).strict().parse(req.body);
+    const clash = await prisma.property.findFirst({ where: { name: { equals: b.name, mode: "insensitive" } } });
+    if (clash) throw new HttpError(409, `There is already a building called "${clash.name}"`);
+    const { section, ...data } = b;
+    const p = await prisma.property.create({ data: { ...data, sectionId: await sectionId(req, section) } });
+    await audit(req.user!, "building.create", b);
+    res.status(201).json({ id: p.id, name: p.name });
+  } catch (e) {
+    next(e);
+  }
+});
+
 assetsRouter.patch("/buildings/:id", canWrite, async (req, res, next) => {
   try {
     managerOnly(req);
     await checkProperty(req, req.params.id);
-    const b = z.object({
-      kind: z.enum(BUILDING_KINDS), code: z.string().trim().max(20), address: z.string().max(300), floors: z.number().int().min(0).max(300).nullable(), notes: z.string().max(4000),
-    }).partial().strict().parse(req.body);
-    await prisma.property.update({ where: { id: req.params.id }, data: b });
-    await audit(req.user!, "building.update", { id: req.params.id, fields: Object.keys(b) });
+    const { section, ...b } = z.object(buildingFields).partial().strict().parse(req.body);
+    const data = section === undefined ? b : { ...b, sectionId: await sectionId(req, section) };
+    await prisma.property.update({ where: { id: req.params.id }, data });
+    await audit(req.user!, "building.update", { id: req.params.id, fields: Object.keys(b).concat(section === undefined ? [] : ["section"]) });
     res.json({ ok: true });
   } catch (e) {
     next(e);

@@ -6,9 +6,9 @@ import { useDashboard, useFilter } from "./state";
 
 export const TAB_PATH: Record<TabKey, string> = {
   brief: "/", ov: "/overview", wos: "/work-orders", wo: "/concerns", as: "/breakdowns", bud: "/financial", pjm: "/projects",
-  pm: "/preventive", per: "/permits", ct: "/contracts", sf: "/safety", data: "/data", set: "/settings",
+  pm: "/preventive", per: "/permits", ct: "/contracts", sf: "/safety", data: "/configuration", set: "/settings",
   prt: "/portal-access",
-  ast: "/assets", mtr: "/meters",
+  ast: "/configuration", mtr: "/meters",
 };
 
 const ICON: Partial<Record<TabKey, string>> = {
@@ -27,7 +27,7 @@ const ICON: Partial<Record<TabKey, string>> = {
   ast: '<path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 10h2M13 10h2M9 14h2M13 14h2M10 21v-3h4v3"/>',
   mtr: '<circle cx="12" cy="13" r="8"/><path d="M12 13l4-4M8 5.5 7 4M16 5.5 17 4"/>',
   prt: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.5"/>',
-  data: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  data: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
 };
 
 export function useTheme() {
@@ -99,7 +99,9 @@ export default function Layout() {
     window.scrollTo(0, 0);
   }, [loc.pathname]);
   if (!user) return null;
-  const tabs = TABS.filter(([k]) => (user.tabs[k] ?? 0) >= 1);
+  const has = (k: TabKey) => (user.tabs[k] ?? 0) >= 1;
+  // Buildings, units, equipment and the meter list live on Configuration, so "ast" has no menu entry of its own.
+  const tabs = TABS.filter(([k]) => k !== "ast" && (k === "data" ? has("data") || has("ast") : has(k)));
   return (
     <>
       <Header showFilter />

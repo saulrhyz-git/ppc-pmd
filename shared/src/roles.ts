@@ -16,7 +16,7 @@ export const TABS = [
   ["wos", "Work Orders"],
   ["wo", "Concerns & Work Orders"],
   ["as", "Breakdowns & Assets"],
-  ["ast", "Buildings & Assets"],
+  ["ast", "Buildings, units & equipment"],
   ["mtr", "Meter Readings"],
   ["prt", "Portal Access"],
   ["bud", "Financial Performance"],
@@ -25,7 +25,7 @@ export const TABS = [
   ["per", "Permits Compliance"],
   ["ct", "Contract Management"],
   ["sf", "Safety & Security"],
-  ["data", "Data"],
+  ["data", "Configuration"],
   ["set", "Settings"],
 ] as const;
 export type TabKey = (typeof TABS)[number][0];

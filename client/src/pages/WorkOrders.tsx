@@ -351,8 +351,8 @@ export function WorkOrderSheet({ id, onClose }: { id: string; onClose: () => voi
               {w.completedAt && <><dt>Completed</dt><dd>{when(w.completedAt)}</dd></>}
               {w.closedAt && <><dt>Closed</dt><dd>{when(w.closedAt)}</dd></>}
               <dt>Type</dt><dd>{w.activityType}{w.trade ? " · " + w.trade : ""}</dd>
-              {w.unitCode && <><dt>Unit / space</dt><dd><Link to={`/assets?unit=${w.unitId}`}>{w.unitCode}</Link></dd></>}
-              {w.assetTag && <><dt>Equipment</dt><dd><Link to={`/assets?asset=${w.assetId}`}>{w.assetTag} · {w.assetName}</Link></dd></>}
+              {w.unitCode && <><dt>Unit / space</dt><dd><Link to={`/configuration?unit=${w.unitId}`}>{w.unitCode}</Link></dd></>}
+              {w.assetTag && <><dt>Equipment</dt><dd><Link to={`/configuration?asset=${w.assetId}`}>{w.assetTag} · {w.assetName}</Link></dd></>}
               {((!w.assetId && w.asset) || w.location) && <><dt>{w.assetId ? "Location" : "Asset / location"}</dt><dd>{[w.assetId ? "" : w.asset, w.location].filter(Boolean).join(" · ")}</dd></>}
               {w.tenant && <><dt>Tenant</dt><dd>{w.tenant}{w.chargeable ? " · chargeable" : ""}</dd></>}
               {w.estCost != null && <><dt>Est. cost</dt><dd>{w.estCost.toLocaleString("en-US")}</dd></>}

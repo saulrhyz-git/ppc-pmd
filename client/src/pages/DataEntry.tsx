@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { canEditData, DATASET_BY_KEY, DATASETS, toCsv, validateRow, type Column, type DatasetKey, type Row } from "@pmd/shared";
+import { canEditData, DATASET_BY_KEY, toCsv, validateRow, type Column, type DatasetKey, type Row } from "@pmd/shared";
 import { api, type DataRow } from "../api";
 import { useAuth } from "../auth";
 import { useMeta } from "../state";
@@ -16,12 +16,11 @@ function Cell({ c, value, onChange, buildings }: { c: Column; value: string; onC
   return <input type={type} value={value} placeholder={c.type === "datetime" ? "YYYY-MM-DD HH:MM" : ""} onChange={(e) => onChange(e.target.value)} style={{ minWidth: c.type === "longtext" ? 220 : c.type === "number" ? 90 : 120 }} />;
 }
 
-export default function DataEntry() {
+/** One register or log (Configuration screen): grid editing, CSV import and export. */
+export default function DataEntry({ dsKey: key }: { dsKey: DatasetKey }) {
   const { user } = useAuth();
   const meta = useMeta();
   const qc = useQueryClient();
-  const [sp, setSp] = useSearchParams();
-  const key = (sp.get("ds") && sp.get("ds")! in DATASET_BY_KEY ? sp.get("ds") : "cs") as DatasetKey;
   const def = DATASET_BY_KEY[key];
   const [building, setBuilding] = useState("All");
   const [edits, setEdits] = useState<Record<string, Row>>({});
@@ -61,11 +60,8 @@ export default function DataEntry() {
 
   return (
     <>
-      <Card title="Data entry" sub={`Registers and logs behind every dashboard. ${editable ? "Edit a cell and press Save on that row; add new records in the last row." : "You can view these records. Editing needs data-edit access."} Data as of ${meta.data?.asOf ?? "…"}.`}>
+      <Card title={def.label} sub={`${editable ? "Edit a cell and press Save on that row; add new records in the last row." : "You can view these records. Editing needs data-edit access."} Data as of ${meta.data?.asOf ?? "…"}.`}>
         <div className="row">
-          <select className="in" value={key} onChange={(e) => { setSp({ ds: e.target.value }); setEdits({}); setDraft({}); setMsg({}); }}>
-            {DATASETS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
-          </select>
           <select className="in" value={building} onChange={(e) => setBuilding(e.target.value)}>
             <option value="All">All buildings</option>
             {buildings.map((b) => <option key={b}>{b}</option>)}

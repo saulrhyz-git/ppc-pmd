@@ -196,7 +196,7 @@ export default function PortalAccess() {
           </Table>
         )}
       </Card>
-      <Card title="Units" sub={!units.isLoading && !shownUnits.length ? "No units are set up for your buildings yet. Add them under Buildings & Assets." : undefined}>
+      <Card title="Units" sub={!units.isLoading && !shownUnits.length ? "No units are set up for your buildings yet. Add them under Configuration, Units & spaces." : undefined}>
         {shownUnits.length > 0 && (
           <Table head={["Building", "Unit", "Kind", "Occupancy", "Owner / tenant on file", "Portal accounts"]}>
             {shownUnits.map((u) => (

@@ -8,7 +8,7 @@ header{background:var(--navy);color:#fff;padding:14px 16px 10px}header h1{margin
 .layout{display:flex;align-items:stretch}nav{display:flex;flex-direction:column;width:210px;flex:none;background:var(--navy);border-top:1px solid #2a3d6b;padding:8px 0}nav:empty{display:none}.nl{color:#8e9bbd;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:10px 16px 4px}.nx,.mb{display:none}.mb{background:none;border:1px solid var(--or);color:#ffd7bd;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer}
 nav button{background:none;border:0;border-left:4px solid transparent;color:#b9c3dc;padding:13px 16px;font-size:14px;cursor:pointer;text-align:left;width:100%}
 nav button:not(.nx){display:flex;align-items:center;gap:10px}.ni{width:19px;height:19px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}nav button.sub{padding:10px 16px 10px 34px;font-size:13px;background:rgba(255,255,255,.04);border-left-color:transparent}nav button.sub.on{color:#fff;border-left-color:var(--or);background:#1f3566;font-weight:600}nav button.on{color:#fff;border-color:var(--or);font-weight:600;background:#1f3566}@media(max-width:719px){.layout{display:block}nav{position:fixed;top:0;left:0;bottom:0;width:78%;max-width:300px;z-index:30;transform:translateX(-105%);transition:transform .2s;padding-top:calc(12px + env(safe-area-inset-top,0px));overflow:auto;box-shadow:4px 0 20px rgba(0,0,0,.35)}nav.open{transform:none}.nx{display:block;color:#ffd7bd}.mb{display:inline-block}.mb.off{display:none}}
-main{flex:1;min-width:0;max-width:980px;margin:0 auto;padding:14px}
+main{flex:1;min-width:0;padding:14px 18px}@media(min-width:1600px){main{padding:16px 28px}}
 header{position:sticky;top:0;z-index:15}html{scroll-padding-top:calc(var(--hh,0px) + 8px)}@media(min-width:720px){nav{position:sticky;top:var(--hh,0px);align-self:flex-start;height:calc(100vh - var(--hh,0px));overflow-y:auto}}
 .card{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:14px;margin-bottom:12px}
 h2{margin:0 0 8px;font-size:17px}h3{margin:12px 0 4px;font-size:14px;color:var(--navy)}@media(prefers-color-scheme:dark){h3{color:var(--or)}}
@@ -60,3 +60,17 @@ label.chk{gap:4px;margin-right:10px;font-size:14px}
 .wocards{display:none}.woc{border:1px solid var(--ln);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;display:flex;flex-direction:column;gap:3px;background:var(--bg)}.woc b{font-size:15px}
 @media(max-width:719px){.wocards{display:block}.wotable{display:none}}
 .ff label.chk input,.ff label.row input[type=checkbox]{width:auto}
+/* wide screens: two-column card rows and the Configuration screen */
+.toolbar{gap:8px 10px}.toolbar .in{width:auto}
+.cfg{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}
+.cfgnav{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:10px 0;position:sticky;top:calc(var(--hh,0px) + 12px);max-height:calc(100vh - var(--hh,0px) - 24px);overflow-y:auto}
+.cfgnav h2{padding:2px 14px 4px;margin:0}.cfgnav .nl{color:var(--mu);padding:12px 14px 4px}
+.cfgnav button{display:block;width:100%;text-align:left;background:none;border:0;border-left:4px solid transparent;color:var(--tx);padding:8px 12px;cursor:pointer;font-size:14px}
+.cfgnav button b{display:block;font-size:14px}.cfgnav button small{display:block;color:var(--mu);font-size:12px}
+.cfgnav button.reg{font-size:13px;padding:6px 12px}
+.cfgnav button:hover{background:var(--bg)}.cfgnav button.on{border-left-color:var(--or);background:var(--bg);font-weight:600}
+.cfgbody{min-width:0}
+@media(max-width:899px){.cfg{grid-template-columns:none}.cfgnav{position:static;max-height:none;display:flex;flex-wrap:nowrap;overflow-x:auto;padding:6px;gap:4px}.cfgnav h2,.cfgnav .nl,.cfgnav button small{display:none}.cfgnav button{flex:none;width:auto;border:1px solid var(--ln);border-radius:99px;padding:6px 12px}.cfgnav button b{font-size:13px}.cfgnav button.on{background:var(--navy);border-color:var(--navy);color:#fff}}
+.toolbar select,.cfgbody .row>select.in{flex:0 1 auto;width:auto}
+/* daily round: meters side by side on wide screens instead of one long stretched column */
+.ergrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:0 10px}@media(max-width:719px){.ergrid{display:block}}

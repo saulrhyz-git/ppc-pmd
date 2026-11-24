@@ -1,6 +1,7 @@
 // Buildings, units/spaces and equipment as linked records, with their work orders.
+// These catalogs are shown on the Configuration screen.
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ASSET_CATEGORIES, ASSET_STATUSES, BUILDING_KINDS, TRADES, UNIT_KINDS, UNIT_OCCUPANCY, UNIT_STATUSES, isMeterManager,
@@ -8,8 +9,8 @@ import {
 } from "@pmd/shared";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { useFilter } from "../state";
-import { Card, ErrorBox, Sheet, Table } from "../ui";
+import { useFilter, useMeta } from "../state";
+import { ErrorBox, Sheet, Table } from "../ui";
 import { fmtDate } from "./common";
 import { NewWorkOrderSheet, StatusPill, useAssetLookup, WorkOrderSheet, type WoPrefill } from "./WorkOrders";
 
@@ -17,10 +18,7 @@ type WoLite = { id: string; ticket: string; title: string; status: string; dateO
 type UnitDetail = UnitDTO & { assets: { id: string; tag: string; name: string; category: string; status: string }[]; meters: { id: string; code: string; meterClass: string; utility: string; unitOfMeasure: string }[]; workOrders: WoLite[] };
 type AssetDetail = AssetDTO & { children: { id: string; tag: string; name: string; status: string }[]; meters: { id: string; code: string; meterClass: string }[]; workOrders: (WoLite & { completedAt: string | null })[] };
 
-const VIEWS = [["units", "Units & spaces"], ["equipment", "Equipment"], ["buildings", "Buildings"]] as const;
-type View = (typeof VIEWS)[number][0];
-
-function useCanEdit() {
+export function useCanEdit() {
   const { user } = useAuth();
   return !!user && (user.tabs.ast ?? 0) >= 2 && isMeterManager(user.role);
 }
@@ -41,69 +39,84 @@ function BuildingSelect({ buildings, value, onChange }: { buildings: BuildingDTO
   );
 }
 
-export default function Assets() {
-  const [params, setParams] = useSearchParams();
-  const [view, setView] = useState<View>(() => (params.get("asset") ? "equipment" : (sessionStorage.getItem("pmd.assetView") as View) || "units"));
-  const pick = (v: View) => { sessionStorage.setItem("pmd.assetView", v); setView(v); };
-  const unitId = params.get("unit"), assetId = params.get("asset");
-  const close = () => setParams({}, { replace: true });
-  return (
-    <>
-      <Card title="Buildings & assets" sub="Units and leased spaces, equipment and buildings as linked records. Work orders and meters point to these records, so each unit and each piece of equipment keeps its own history.">
-        <div className="tabs">{VIEWS.map(([k, l]) => <button key={k} className={view === k ? "on" : ""} onClick={() => pick(k)}>{l}</button>)}</div>
-      </Card>
-      {view === "units" && <Units onOpen={(id) => setParams({ unit: id })} />}
-      {view === "equipment" && <Equipment onOpen={(id) => setParams({ asset: id })} />}
-      {view === "buildings" && <Buildings />}
-      {unitId && <UnitSheet id={unitId} onClose={close} onOpenAsset={(id) => setParams({ asset: id })} />}
-      {assetId && <AssetSheet id={assetId} onClose={close} onOpenAsset={(id) => setParams({ asset: id })} />}
-    </>
-  );
-}
-
 // ---------------- buildings ----------------
-function Buildings() {
+export function Buildings() {
   const q = useBuildings();
+  const meta = useMeta();
+  const { user } = useAuth();
   const canEdit = useCanEdit();
-  const [edit, setEdit] = useState<BuildingDTO | null>(null);
+  const isDH = user?.role === "Department Head";
+  const [edit, setEdit] = useState<BuildingDTO | "new" | null>(null);
+  const [search, setSearch] = useState("");
+  const rows = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    return (q.data ?? []).filter((b) => !s || [b.name, b.code, b.address, b.kind, b.section ?? ""].some((x) => x.toLowerCase().includes(s)));
+  }, [q.data, search]);
   if (q.error) return <ErrorBox error={q.error} />;
   return (
     <div className="card">
-      <p className="mu">Buildings are added in Settings. Here you record what kind of building each one is and its address.</p>
-      <Table head={["Building", "Kind", "Code", "Section", "Units", "Equipment", "Meters", ""]}>
-        {(q.data ?? []).map((b) => (
-          <tr key={b.id}>
-            <td><b>{b.name}</b>{b.address && <><br /><small className="mu">{b.address}</small></>}</td>
-            <td>{b.kind}</td><td>{b.code || "–"}</td><td>{b.section ?? "–"}</td><td>{b.unitCount}</td><td>{b.assetCount}</td><td>{b.meterCount}</td>
-            <td>{canEdit && <button className="lnk" onClick={() => setEdit(b)}>Edit</button>}</td>
-          </tr>
-        ))}
-      </Table>
-      {edit && <BuildingEditor b={edit} onClose={() => setEdit(null)} />}
+      <div className="row">
+        <h2 style={{ margin: 0 }}>Buildings</h2>
+        <input className="in" style={{ flex: 1, minWidth: 180 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, code, address or section" />
+        {isDH && canEdit && <button className="cta sm" onClick={() => setEdit("new")}>+ Building</button>}
+      </div>
+      <p className="mu">{isDH ? "Add a building here, or let a data import create it. " : "The Department Head adds buildings. "}Each building holds its units and spaces, equipment and meters.{isDH ? " Red / Amber scoring points stay under Settings." : ""}</p>
+      {q.isLoading ? <p className="mu">Loading…</p> : !rows.length ? <p className="mu">{q.data?.length ? "No building matches." : "No buildings yet."}</p> : (
+        <Table head={["Building", "Code", "Kind", "Section", "Floors", "Address", "Units", "Equipment", "Meters", ""]}>
+          {rows.map((b) => (
+            <tr key={b.id} className={canEdit ? "click" : undefined} onClick={canEdit ? () => setEdit(b) : undefined}>
+              <td><b>{b.name}</b></td><td>{b.code || "–"}</td><td>{b.kind}</td><td>{b.section ?? <span className="mu">Unassigned</span>}</td><td>{b.floors ?? "–"}</td>
+              <td className="wrap">{b.address || "–"}</td><td>{b.unitCount}</td><td>{b.assetCount}</td><td>{b.meterCount}</td>
+              <td>{canEdit && <button className="lnk">Edit</button>}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+      {!!rows.length && <p className="mu">{rows.length} building{rows.length === 1 ? "" : "s"}.</p>}
+      {edit && <BuildingEditor b={edit === "new" ? null : edit} sections={meta.data?.sections ?? []} canSection={isDH} onClose={() => setEdit(null)} />}
     </div>
   );
 }
 
-function BuildingEditor({ b, onClose }: { b: BuildingDTO; onClose: () => void }) {
+function BuildingEditor({ b, sections, canSection, onClose }: { b: BuildingDTO | null; sections: string[]; canSection: boolean; onClose: () => void }) {
   const refresh = useRefresh();
-  const [f, setF] = useState({ kind: b.kind, code: b.code, address: b.address, floors: b.floors == null ? "" : String(b.floors), notes: b.notes });
+  const qc = useQueryClient();
+  const [f, setF] = useState({
+    name: b?.name ?? "", section: b?.section ?? "", kind: b?.kind ?? "Commercial", code: b?.code ?? "", address: b?.address ?? "",
+    floors: b?.floors == null ? "" : String(b.floors), notes: b?.notes ?? "",
+  });
   const [err, setErr] = useState("");
+  const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
   const save = useMutation({
-    mutationFn: () => api.patch(`/assets/buildings/${b.id}`, { ...f, floors: f.floors === "" ? null : Number(f.floors) }),
-    onSuccess: () => { refresh(); onClose(); },
+    mutationFn: () => {
+      const { name, section, ...rest } = f;
+      const body = { ...rest, floors: f.floors === "" ? null : Number(f.floors), ...(canSection ? { section: section || null } : {}) };
+      return b ? api.patch(`/assets/buildings/${b.id}`, body) : api.post("/assets/buildings", { ...body, name });
+    },
+    onSuccess: () => {
+      refresh();
+      // A new building or section change shows up in the header filter, dashboards and every building picker.
+      for (const k of ["meta", "dashboard", "concern-buildings", "meter-board"]) qc.invalidateQueries({ queryKey: [k] });
+      onClose();
+    },
     onError: (e) => setErr((e as Error).message),
   });
   return (
-    <Sheet title={b.name} onClose={onClose}>
+    <Sheet title={b ? `Edit ${b.name}` : "New building"} onClose={onClose}>
       <div className="fgrid">
-        <div className="ff"><span className="mu">Kind</span><select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as BuildingDTO["kind"] })}>{BUILDING_KINDS.map((k) => <option key={k}>{k}</option>)}</select></div>
-        <div className="ff"><span className="mu">Short code</span><input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value })} placeholder="e.g. I3" /></div>
-        <div className="ff"><span className="mu">Floors</span><input type="number" min={0} value={f.floors} onChange={(e) => setF({ ...f, floors: e.target.value })} /></div>
+        {!b && <div className="ff" style={{ gridColumn: "1 / -1" }}><span className="mu">Building name *</span><input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Annex C" /></div>}
+        <div className="ff"><span className="mu">Short code</span><input value={f.code} onChange={(e) => set("code", e.target.value)} placeholder="e.g. I3" /></div>
+        <div className="ff"><span className="mu">Kind</span><select value={f.kind} onChange={(e) => set("kind", e.target.value)}>{BUILDING_KINDS.map((k) => <option key={k}>{k}</option>)}</select></div>
+        <div className="ff"><span className="mu">Section</span>
+          <select value={f.section} disabled={!canSection} onChange={(e) => set("section", e.target.value)}><option value="">Unassigned</option>{sections.map((s) => <option key={s}>{s}</option>)}</select>
+        </div>
+        <div className="ff"><span className="mu">Floors</span><input type="number" min={0} value={f.floors} onChange={(e) => set("floors", e.target.value)} /></div>
       </div>
-      <div className="ff"><span className="mu">Address</span><input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} /></div>
-      <div className="ff"><span className="mu">Notes</span><textarea className="in" rows={3} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
+      <div className="ff"><span className="mu">Address</span><input value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
+      <div className="ff"><span className="mu">Notes</span><textarea className="in" rows={3} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></div>
+      {!b && <p className="mu">Supervisors see the buildings in their section. Engineers and technicians are given buildings one by one under Settings, Users &amp; access.</p>}
       {err && <p className="err">{err}</p>}
-      <div className="row"><span className="spacer" /><button className="cta" disabled={save.isPending} onClick={() => save.mutate()}>Save</button></div>
+      <div className="row"><span className="spacer" /><button className="cta" disabled={save.isPending || (!b && f.name.trim().length < 2)} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : b ? "Save" : "Add building"}</button></div>
     </Sheet>
   );
 }
@@ -117,7 +130,7 @@ function useBuildingChoice() {
   return { list, current, building };
 }
 
-function Units({ onOpen }: { onOpen: (id: string) => void }) {
+export function Units({ onOpen }: { onOpen: (id: string) => void }) {
   const { list, building } = useBuildingChoice();
   const canEdit = useCanEdit();
   const [search, setSearch] = useState("");
@@ -237,7 +250,7 @@ function UnitImport({ onClose }: { onClose: () => void }) {
   );
 }
 
-function UnitSheet({ id, onClose, onOpenAsset }: { id: string; onClose: () => void; onOpenAsset: (id: string) => void }) {
+export function UnitSheet({ id, onClose, onOpenAsset }: { id: string; onClose: () => void; onOpenAsset: (id: string) => void }) {
   const q = useQuery({ queryKey: ["unit", id], queryFn: () => api.get<UnitDetail>(`/assets/units/${id}`) });
   const canEdit = useCanEdit();
   const { user } = useAuth();
@@ -288,7 +301,7 @@ function UnitSheet({ id, onClose, onOpenAsset }: { id: string; onClose: () => vo
 }
 
 // ---------------- equipment ----------------
-function Equipment({ onOpen }: { onOpen: (id: string) => void }) {
+export function Equipment({ onOpen }: { onOpen: (id: string) => void }) {
   const { list, building } = useBuildingChoice();
   const canEdit = useCanEdit();
   const [search, setSearch] = useState("");
@@ -379,7 +392,7 @@ function AssetEditor({ asset, onClose, onSaved }: { asset?: AssetDTO; onClose: (
   );
 }
 
-function AssetSheet({ id, onClose, onOpenAsset }: { id: string; onClose: () => void; onOpenAsset: (id: string) => void }) {
+export function AssetSheet({ id, onClose, onOpenAsset }: { id: string; onClose: () => void; onOpenAsset: (id: string) => void }) {
   const q = useQuery({ queryKey: ["asset", id], queryFn: () => api.get<AssetDetail>(`/assets/items/${id}`) });
   const canEdit = useCanEdit();
   const { user } = useAuth();
@@ -400,7 +413,7 @@ function AssetSheet({ id, onClose, onOpenAsset }: { id: string; onClose: () => v
         <>
           <dl className="kv">
             <dt>Building</dt><dd>{a.property}</dd>
-            {a.unitCode && <><dt>Unit / space</dt><dd><Link to={`/assets?unit=${a.unitId}`}>{a.unitCode}</Link></dd></>}
+            {a.unitCode && <><dt>Unit / space</dt><dd><Link to={`/configuration?unit=${a.unitId}`}>{a.unitCode}</Link></dd></>}
             {a.parentTag && <><dt>Part of</dt><dd><button className="lnk" onClick={() => onOpenAsset(a.parentId!)}>{a.parentTag}</button></dd></>}
             <dt>Status</dt><dd>{a.status}{a.critical ? " · critical asset" : ""}</dd>
             {(a.category || a.trade) && <><dt>Category</dt><dd>{[a.category, a.trade].filter(Boolean).join(" · ")}</dd></>}

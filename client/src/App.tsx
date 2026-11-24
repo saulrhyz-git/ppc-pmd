@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import type { TabKey } from "@pmd/shared";
 import { useAuth } from "./auth";
@@ -15,11 +15,10 @@ import Preventive from "./pages/Preventive";
 import Permits from "./pages/Permits";
 import Contracts from "./pages/Contracts";
 import Safety from "./pages/Safety";
-import DataEntry from "./pages/DataEntry";
 import Settings from "./pages/Settings";
 import WorkOrders from "./pages/WorkOrders";
 import PortalAccess from "./pages/PortalAccess";
-import Assets from "./pages/Assets";
+import Configuration from "./pages/Configuration";
 import Meters from "./pages/Meters";
 import { TAB_PATH } from "./Layout";
 import { TABS } from "@pmd/shared";
@@ -28,6 +27,25 @@ function Guard({ tab, children }: { tab: TabKey; children: ReactNode }) {
   const { user } = useAuth();
   if (!user || (user.tabs[tab] ?? 0) < 1) return <div className="card"><h2>No access</h2><p className="mu">Your account does not have access to this screen. Ask the Department Head if you need it.</p></div>;
   return <>{children}</>;
+}
+
+/** Configuration gathers the catalogs from three access areas: buildings and assets, meters, and the registers. */
+function ConfigGuard({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user || !(["ast", "mtr", "data"] as const).some((k) => (user.tabs[k] ?? 0) >= 1)) return <Guard tab="data">{children}</Guard>;
+  return <>{children}</>;
+}
+
+/** Old addresses (/assets, /data) still work: they open the matching Configuration catalog. */
+function ToConfig() {
+  const loc = useLocation();
+  const p = new URLSearchParams(loc.search);
+  if (loc.pathname.startsWith("/data")) {
+    const ds = p.get("ds");
+    p.delete("ds");
+    p.set("s", "reg-" + (ds || "cs"));
+  }
+  return <Navigate to={`/configuration?${p}`} replace />;
 }
 
 /** Users without the Needs Focus screen (e.g. technicians) start on their first screen. */
@@ -47,7 +65,8 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={(user.tabs.brief ?? 0) >= 1 ? <NeedsFocus /> : <Home />} />
         <Route path="work-orders" element={<Guard tab="wos"><WorkOrders /></Guard>} />
-        <Route path="assets" element={<Guard tab="ast"><Assets /></Guard>} />
+        <Route path="configuration" element={<ConfigGuard><Configuration /></ConfigGuard>} />
+        <Route path="assets" element={<ToConfig />} />
         <Route path="meters" element={<Guard tab="mtr"><Meters /></Guard>} />
         <Route path="overview" element={<Guard tab="ov"><Overview /></Guard>} />
         <Route path="concerns" element={<Guard tab="wo"><ConcernsWO /></Guard>} />
@@ -58,7 +77,7 @@ export default function App() {
         <Route path="permits" element={<Guard tab="per"><Permits /></Guard>} />
         <Route path="contracts" element={<Guard tab="ct"><Contracts /></Guard>} />
         <Route path="safety" element={<Guard tab="sf"><Safety /></Guard>} />
-        <Route path="data" element={<Guard tab="data"><DataEntry /></Guard>} />
+        <Route path="data" element={<ToConfig />} />
         <Route path="settings" element={<Guard tab="set"><Settings /></Guard>} />
         <Route path="portal-access" element={<Guard tab="prt"><PortalAccess /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />

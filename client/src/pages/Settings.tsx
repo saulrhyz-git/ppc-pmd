@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { defaultTabs, ROLE_NOTES, ROLES, TABS, THRESHOLD_LABELS, type Role, type TabAccess, type Thresholds } from "@pmd/shared";
 import { api, type AdminUser } from "../api";
@@ -98,11 +99,9 @@ function Buildings() {
   const meta = useMeta();
   const qc = useQueryClient();
   const [sec, setSec] = useState("");
-  const [prop, setProp] = useState({ name: "", section: "" });
   const [err, setErr] = useState("");
   const done = () => { setErr(""); qc.invalidateQueries({ queryKey: ["meta"] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); };
   const addSec = useMutation({ mutationFn: () => api.post("/sections", { name: sec }), onSuccess: () => { setSec(""); done(); }, onError: (e) => setErr((e as Error).message) });
-  const addProp = useMutation({ mutationFn: () => api.post("/properties", { name: prop.name, section: prop.section || null }), onSuccess: () => { setProp({ name: "", section: "" }); done(); }, onError: (e) => setErr((e as Error).message) });
   const upd = useMutation({ mutationFn: (p: { id: string; section: string | null; scoreRed: number; scoreAmber: number }) => api.put(`/properties/${p.id}`, p), onSuccess: done, onError: (e) => setErr((e as Error).message) });
   const m = meta.data;
   if (!m) return null;
@@ -118,12 +117,7 @@ function Buildings() {
           </tr>
         ))}
       </Table>
-      <h3>Add a building</h3>
-      <div className="row">
-        <input className="in" placeholder="Building name" value={prop.name} onChange={(e) => setProp({ ...prop, name: e.target.value })} />
-        <select className="in" value={prop.section} onChange={(e) => setProp({ ...prop, section: e.target.value })}><option value="">Unassigned</option>{m.sections.map((s) => <option key={s}>{s}</option>)}</select>
-        <button className="cta sm" disabled={!prop.name.trim()} onClick={() => addProp.mutate()}>Add building</button>
-      </div>
+      <p className="mu">To add a building or change its details, go to <Link to="/configuration?s=buildings">Configuration, Buildings</Link>.</p>
       <h3>Add a section</h3>
       <div className="row">
         <input className="in" placeholder="Section name" value={sec} onChange={(e) => setSec(e.target.value)} />
