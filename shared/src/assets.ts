@@ -61,6 +61,20 @@ export interface BuildingDTO {
   unitCount: number;
   assetCount: number;
   meterCount: number;
+  /** Set when the building is archived: it is then left out of scope, dashboards and pickers. */
+  archivedAt: string | null;
+  archivedBy: string;
+  archiveReason: string;
+}
+
+export interface BuildingChangeDTO {
+  id: string;
+  kind: "Renamed" | "Archived" | "Restored";
+  fromName: string;
+  toName: string;
+  reason: string;
+  byName: string;
+  at: string;
 }
 
 export interface UnitDTO {

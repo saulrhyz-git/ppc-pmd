@@ -22,8 +22,9 @@ export async function getAsOf(): Promise<string> {
   return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : new Date().toISOString().slice(0, 10);
 }
 
-export async function allProperties() {
-  const ps = await prisma.property.findMany({ include: { section: true }, orderBy: [{ section: { sortOrder: "asc" } }, { name: "asc" }] });
+/** Buildings in use. Archived buildings are left out unless asked for (Configuration lists them). */
+export async function allProperties(includeArchived = false) {
+  const ps = await prisma.property.findMany({ where: includeArchived ? {} : { archivedAt: null }, include: { section: true }, orderBy: [{ section: { sortOrder: "asc" } }, { name: "asc" }] });
   return ps.map((p) => ({ id: p.id, name: p.name, section: p.section?.name ?? null, scoreRed: p.scoreRed, scoreAmber: p.scoreAmber }));
 }
 

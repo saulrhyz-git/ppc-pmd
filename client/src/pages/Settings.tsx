@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { defaultTabs, ROLE_NOTES, ROLES, TABS, THRESHOLD_LABELS, type Role, type TabAccess, type Thresholds } from "@pmd/shared";
+import { defaultTabs, ROLE_NOTES, ROLES, TABS, THRESHOLD_LABELS, type Role, type TabAccess, type TabKey, type Thresholds } from "@pmd/shared";
 import { api, type AdminUser } from "../api";
 import { useMeta } from "../state";
 import { useAuth } from "../auth";
@@ -18,6 +18,9 @@ function Fold({ title, children, open: o = false }: { title: string; children: R
 }
 
 type Draft = Omit<AdminUser, "id" | "lastLoginAt"> & { id?: string; password?: string };
+
+/** Screens with an edit level. Before, only Data offered it, so saving a user could quietly drop edit access to the others. */
+const EDITABLE_TABS: readonly TabKey[] = ["wos", "ast", "mtr", "prt", "data"];
 
 function UserForm({ u, onClose }: { u: Draft; onClose: () => void }) {
   const meta = useMeta().data;
@@ -67,7 +70,7 @@ function UserForm({ u, onClose }: { u: Draft; onClose: () => void }) {
               {TABS.filter(([k]) => k !== "set").map(([k, l]) => (
                 <tr key={k}><td>{l}</td><td>
                   <select className="in" value={f.tabs[k] ?? 0} onChange={(e) => set("tabs", { ...f.tabs, [k]: +e.target.value as 0 | 1 | 2 } as TabAccess)}>
-                    <option value={0}>Hidden</option><option value={1}>View</option>{k === "data" && <option value={2}>View and edit</option>}
+                    <option value={0}>Hidden</option><option value={1}>View</option>{EDITABLE_TABS.includes(k) && <option value={2}>View and edit</option>}
                   </select>
                 </td></tr>
               ))}

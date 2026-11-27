@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ASSET_CATEGORIES, ASSET_STATUSES, BUILDING_KINDS, TRADES, UNIT_KINDS, UNIT_OCCUPANCY, UNIT_STATUSES, isMeterManager,
-  type AssetDTO, type BuildingDTO, type UnitDTO,
+  type AssetDTO, type BuildingChangeDTO, type BuildingDTO, type UnitDTO,
 } from "@pmd/shared";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -20,7 +20,8 @@ type AssetDetail = AssetDTO & { children: { id: string; tag: string; name: strin
 
 export function useCanEdit() {
   const { user } = useAuth();
-  return !!user && (user.tabs.ast ?? 0) >= 2 && isMeterManager(user.role);
+  // The Department Head always manages these records, whatever their screen access is set to.
+  return !!user && (user.role === "Department Head" || ((user.tabs.ast ?? 0) >= 2 && isMeterManager(user.role)));
 }
 function useRefresh() {
   const qc = useQueryClient();
@@ -29,6 +30,8 @@ function useRefresh() {
   };
 }
 export const useBuildings = () => useQuery({ queryKey: ["buildings"], queryFn: () => api.get<BuildingDTO[]>("/assets/buildings") });
+/** Every building in scope including archived ones (Configuration only). */
+const useAllBuildings = () => useQuery({ queryKey: ["buildings", "with-archived"], queryFn: () => api.get<BuildingDTO[]>("/assets/buildings?archived=1") });
 
 /** Building picker that follows the header filter but needs a single building for adding records. */
 function BuildingSelect({ buildings, value, onChange }: { buildings: BuildingDTO[]; value: string; onChange: (id: string) => void }) {
@@ -41,83 +44,172 @@ function BuildingSelect({ buildings, value, onChange }: { buildings: BuildingDTO
 
 // ---------------- buildings ----------------
 export function Buildings() {
-  const q = useBuildings();
+  const q = useAllBuildings();
   const meta = useMeta();
   const { user } = useAuth();
   const canEdit = useCanEdit();
   const isDH = user?.role === "Department Head";
   const [edit, setEdit] = useState<BuildingDTO | "new" | null>(null);
   const [search, setSearch] = useState("");
+  const [show, setShow] = useState<"active" | "archived" | "all">("active");
+  const archivedCount = (q.data ?? []).filter((b) => b.archivedAt).length;
   const rows = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return (q.data ?? []).filter((b) => !s || [b.name, b.code, b.address, b.kind, b.section ?? ""].some((x) => x.toLowerCase().includes(s)));
-  }, [q.data, search]);
+    return (q.data ?? []).filter((b) => (show === "all" || (show === "archived") === !!b.archivedAt)
+      && (!s || [b.name, b.code, b.address, b.kind, b.section ?? ""].some((x) => x.toLowerCase().includes(s))));
+  }, [q.data, search, show]);
   if (q.error) return <ErrorBox error={q.error} />;
+  const open = (b: BuildingDTO) => (canEdit || b.archivedAt ? setEdit(b) : undefined);
   return (
     <div className="card">
       <div className="row">
         <h2 style={{ margin: 0 }}>Buildings</h2>
         <input className="in" style={{ flex: 1, minWidth: 180 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, code, address or section" />
-        {isDH && canEdit && <button className="cta sm" onClick={() => setEdit("new")}>+ Building</button>}
+        <div className="tabs" style={{ margin: 0 }}>
+          <button className={show === "active" ? "on" : ""} onClick={() => setShow("active")}>In use</button>
+          <button className={show === "archived" ? "on" : ""} onClick={() => setShow("archived")}>Archived ({archivedCount})</button>
+          <button className={show === "all" ? "on" : ""} onClick={() => setShow("all")}>All</button>
+        </div>
+        {isDH && <button className="cta sm" onClick={() => setEdit("new")}>+ Building</button>}
       </div>
-      <p className="mu">{isDH ? "Add a building here, or let a data import create it. " : "The Department Head adds buildings. "}Each building holds its units and spaces, equipment and meters.{isDH ? " Red / Amber scoring points stay under Settings." : ""}</p>
-      {q.isLoading ? <p className="mu">Loading…</p> : !rows.length ? <p className="mu">{q.data?.length ? "No building matches." : "No buildings yet."}</p> : (
+      <p className="mu">{isDH ? "Add a building here, or open one to edit, rename or archive it. A rename or archive needs a reason and is kept in the building's history. " : "The Department Head adds, renames and archives buildings. "}Archived buildings keep all their records but drop out of dashboards, pickers and imports.</p>
+      {q.isLoading ? <p className="mu">Loading…</p> : !rows.length ? <p className="mu">{q.data?.length ? (show === "archived" ? "No archived buildings." : "No building matches.") : "No buildings yet."}</p> : (
         <Table head={["Building", "Code", "Kind", "Section", "Floors", "Address", "Units", "Equipment", "Meters", ""]}>
           {rows.map((b) => (
-            <tr key={b.id} className={canEdit ? "click" : undefined} onClick={canEdit ? () => setEdit(b) : undefined}>
-              <td><b>{b.name}</b></td><td>{b.code || "–"}</td><td>{b.kind}</td><td>{b.section ?? <span className="mu">Unassigned</span>}</td><td>{b.floors ?? "–"}</td>
+            <tr key={b.id} className="click" onClick={() => open(b)} style={b.archivedAt ? { opacity: 0.6 } : undefined}>
+              <td><b>{b.name}</b>{b.archivedAt && <span className="pill" style={{ marginLeft: 6, background: "var(--mu)" }}>Archived</span>}</td>
+              <td>{b.code || "–"}</td><td>{b.kind}</td><td>{b.section ?? <span className="mu">Unassigned</span>}</td><td>{b.floors ?? "–"}</td>
               <td className="wrap">{b.address || "–"}</td><td>{b.unitCount}</td><td>{b.assetCount}</td><td>{b.meterCount}</td>
-              <td>{canEdit && <button className="lnk">Edit</button>}</td>
+              <td>{b.archivedAt ? <button className="lnk">View</button> : canEdit && <button className="lnk">Edit</button>}</td>
             </tr>
           ))}
         </Table>
       )}
       {!!rows.length && <p className="mu">{rows.length} building{rows.length === 1 ? "" : "s"}.</p>}
-      {edit && <BuildingEditor b={edit === "new" ? null : edit} sections={meta.data?.sections ?? []} canSection={isDH} onClose={() => setEdit(null)} />}
+      {edit && <BuildingEditor b={edit === "new" ? null : edit} sections={meta.data?.sections ?? []} isDH={isDH} onClose={() => setEdit(null)} />}
     </div>
   );
 }
 
-function BuildingEditor({ b, sections, canSection, onClose }: { b: BuildingDTO | null; sections: string[]; canSection: boolean; onClose: () => void }) {
+/** Refreshes everything that lists buildings: header filter, dashboards and every building picker. */
+function useBuildingRefresh() {
   const refresh = useRefresh();
   const qc = useQueryClient();
+  return () => {
+    refresh();
+    for (const k of ["meta", "dashboard", "concern-buildings", "meter-board", "rows", "wos", "users"]) qc.invalidateQueries({ queryKey: [k] });
+  };
+}
+
+function BuildingEditor({ b, sections, isDH, onClose }: { b: BuildingDTO | null; sections: string[]; isDH: boolean; onClose: () => void }) {
+  const refresh = useBuildingRefresh();
   const [f, setF] = useState({
     name: b?.name ?? "", section: b?.section ?? "", kind: b?.kind ?? "Commercial", code: b?.code ?? "", address: b?.address ?? "",
     floors: b?.floors == null ? "" : String(b.floors), notes: b?.notes ?? "",
   });
   const [err, setErr] = useState("");
+  const [action, setAction] = useState<"rename" | "archive" | "restore" | null>(null);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
+  const archived = !!b?.archivedAt;
   const save = useMutation({
     mutationFn: () => {
       const { name, section, ...rest } = f;
-      const body = { ...rest, floors: f.floors === "" ? null : Number(f.floors), ...(canSection ? { section: section || null } : {}) };
+      const body = { ...rest, floors: f.floors === "" ? null : Number(f.floors), ...(isDH ? { section: section || null } : {}) };
       return b ? api.patch(`/assets/buildings/${b.id}`, body) : api.post("/assets/buildings", { ...body, name });
     },
-    onSuccess: () => {
-      refresh();
-      // A new building or section change shows up in the header filter, dashboards and every building picker.
-      for (const k of ["meta", "dashboard", "concern-buildings", "meter-board"]) qc.invalidateQueries({ queryKey: [k] });
-      onClose();
-    },
+    onSuccess: () => { refresh(); onClose(); },
     onError: (e) => setErr((e as Error).message),
   });
+  if (b && action) return <BuildingAction b={b} action={action} onBack={() => setAction(null)} onDone={() => { refresh(); onClose(); }} />;
   return (
-    <Sheet title={b ? `Edit ${b.name}` : "New building"} onClose={onClose}>
-      <div className="fgrid">
-        {!b && <div className="ff" style={{ gridColumn: "1 / -1" }}><span className="mu">Building name *</span><input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Annex C" /></div>}
-        <div className="ff"><span className="mu">Short code</span><input value={f.code} onChange={(e) => set("code", e.target.value)} placeholder="e.g. I3" /></div>
-        <div className="ff"><span className="mu">Kind</span><select value={f.kind} onChange={(e) => set("kind", e.target.value)}>{BUILDING_KINDS.map((k) => <option key={k}>{k}</option>)}</select></div>
-        <div className="ff"><span className="mu">Section</span>
-          <select value={f.section} disabled={!canSection} onChange={(e) => set("section", e.target.value)}><option value="">Unassigned</option>{sections.map((s) => <option key={s}>{s}</option>)}</select>
+    <Sheet title={b ? (archived ? `${b.name} (archived)` : `Edit ${b.name}`) : "New building"} onClose={onClose}>
+      {archived && (
+        <div className="er bad" style={{ cursor: "default" }}>
+          <b>Archived {fmtDate(b!.archivedAt!.slice(0, 10))}{b!.archivedBy ? ` by ${b!.archivedBy}` : ""}</b>
+          <span className="mu">Reason: {b!.archiveReason || "–"}</span>
+          {isDH && <div className="row" style={{ marginTop: 6 }}><button className="cta sm" onClick={() => setAction("restore")}>Restore building</button></div>}
         </div>
-        <div className="ff"><span className="mu">Floors</span><input type="number" min={0} value={f.floors} onChange={(e) => set("floors", e.target.value)} /></div>
-      </div>
-      <div className="ff"><span className="mu">Address</span><input value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
-      <div className="ff"><span className="mu">Notes</span><textarea className="in" rows={3} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></div>
+      )}
+      <fieldset disabled={archived} style={{ border: 0, padding: 0, margin: 0 }}>
+        <div className="fgrid">
+          {!b && <div className="ff" style={{ gridColumn: "1 / -1" }}><span className="mu">Building name *</span><input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Annex C" /></div>}
+          <div className="ff"><span className="mu">Short code</span><input value={f.code} onChange={(e) => set("code", e.target.value)} placeholder="e.g. I3" /></div>
+          <div className="ff"><span className="mu">Kind</span><select value={f.kind} onChange={(e) => set("kind", e.target.value)}>{BUILDING_KINDS.map((k) => <option key={k}>{k}</option>)}</select></div>
+          <div className="ff"><span className="mu">Section</span>
+            <select value={f.section} disabled={!isDH} onChange={(e) => set("section", e.target.value)}><option value="">Unassigned</option>{sections.map((s) => <option key={s}>{s}</option>)}</select>
+          </div>
+          <div className="ff"><span className="mu">Floors</span><input type="number" min={0} value={f.floors} onChange={(e) => set("floors", e.target.value)} /></div>
+        </div>
+        <div className="ff"><span className="mu">Address</span><input value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
+        <div className="ff"><span className="mu">Notes</span><textarea className="in" rows={3} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></div>
+      </fieldset>
       {!b && <p className="mu">Supervisors see the buildings in their section. Engineers and technicians are given buildings one by one under Settings, Users &amp; access.</p>}
       {err && <p className="err">{err}</p>}
-      <div className="row"><span className="spacer" /><button className="cta" disabled={save.isPending || (!b && f.name.trim().length < 2)} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : b ? "Save" : "Add building"}</button></div>
+      {!archived && (
+        <div className="row">
+          {b && isDH && <><button className="lnk" onClick={() => setAction("rename")}>Rename…</button><button className="lnk" style={{ color: "var(--r)" }} onClick={() => setAction("archive")}>Archive…</button></>}
+          <span className="spacer" />
+          <button className="cta" disabled={save.isPending || (!b && f.name.trim().length < 2)} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : b ? "Save" : "Add building"}</button>
+        </div>
+      )}
+      {b && <BuildingHistory id={b.id} />}
     </Sheet>
+  );
+}
+
+const ACTION_TEXT = {
+  rename: { title: "Rename", button: "Rename building", reasonHint: "e.g. Building renamed by the owner after the sale" },
+  archive: { title: "Archive", button: "Archive building", reasonHint: "e.g. Management contract ended on 30 Nov 2026" },
+  restore: { title: "Restore", button: "Restore building", reasonHint: "e.g. Contract renewed" },
+} as const;
+
+/** Rename, archive or restore. Each needs a reason, which is kept in the building's history. */
+function BuildingAction({ b, action, onBack, onDone }: { b: BuildingDTO; action: "rename" | "archive" | "restore"; onBack: () => void; onDone: () => void }) {
+  const [name, setName] = useState(b.name);
+  const [reason, setReason] = useState("");
+  const [err, setErr] = useState("");
+  const t = ACTION_TEXT[action];
+  const go = useMutation({
+    mutationFn: () => api.post(`/assets/buildings/${b.id}/${action}`, action === "rename" ? { name, reason } : { reason }),
+    onSuccess: onDone,
+    onError: (e) => setErr((e as Error).message),
+  });
+  const ok = reason.trim().length >= 5 && (action !== "rename" || (name.trim().length >= 2 && name.trim() !== b.name));
+  return (
+    <Sheet title={`${t.title} ${b.name}`} onClose={onBack}>
+      {action === "rename" && (
+        <>
+          <div className="ff"><span className="mu">New name *</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <p className="mu">The new name replaces the old one everywhere: dashboards, registers, concerns, work orders and each user's building list.</p>
+        </>
+      )}
+      {action === "archive" && (
+        <p className="mu">{b.name} will drop out of dashboards, the building filter, pickers and imports. Its {b.unitCount} units, {b.assetCount} pieces of equipment, {b.meterCount} meters and all past records are kept, and you can restore it at any time.</p>
+      )}
+      {action === "restore" && <p className="mu">{b.name} comes back into dashboards, pickers and each user's scope.</p>}
+      <div className="ff"><span className="mu">Reason *</span><textarea className="in" rows={3} autoFocus={action !== "rename"} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t.reasonHint} /></div>
+      {err && <p className="err">{err}</p>}
+      <div className="row">
+        <button className="lnk" onClick={onBack}>Back</button><span className="spacer" />
+        <button className="cta" style={action === "archive" ? { background: "var(--r)" } : undefined} disabled={!ok || go.isPending} onClick={() => go.mutate()}>{go.isPending ? "Saving…" : t.button}</button>
+      </div>
+    </Sheet>
+  );
+}
+
+function BuildingHistory({ id }: { id: string }) {
+  const q = useQuery({ queryKey: ["buildings", "history", id], queryFn: () => api.get<BuildingChangeDTO[]>(`/assets/buildings/${id}/history`) });
+  if (!q.data?.length) return null;
+  return (
+    <>
+      <h3>Rename and archive history</h3>
+      {q.data.map((c) => (
+        <div key={c.id} className="msg staff">
+          <b>{c.kind === "Renamed" ? `Renamed from ${c.fromName} to ${c.toName}` : c.kind}</b> <small>{new Date(c.at).toLocaleString("en-GB")} · {c.byName}</small>
+          <div>{c.reason}</div>
+        </div>
+      ))}
+    </>
   );
 }
 

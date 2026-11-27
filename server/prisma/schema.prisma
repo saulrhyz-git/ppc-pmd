@@ -28,10 +28,31 @@ model Property {
   floors     Int?
   notes      String   @default("")
   createdAt  DateTime @default(now())
+  /// Archived buildings drop out of scope, dashboards and pickers but keep all their records.
+  archivedAt    DateTime?
+  archivedBy    String    @default("")
+  archiveReason String    @default("")
 
-  units  Unit[]
-  assets Asset[]
-  meters Meter[]
+  units   Unit[]
+  assets  Asset[]
+  meters  Meter[]
+  changes PropertyChange[]
+}
+
+/// Renames, archives and restores of a building, each with the reason given.
+model PropertyChange {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  kind       String // Renamed | Archived | Restored
+  fromName   String   @default("")
+  toName     String   @default("")
+  reason     String
+  byId       String?
+  byName     String
+  createdAt  DateTime @default(now())
+
+  @@index([propertyId, createdAt])
 }
 
 model User {

@@ -1,27 +1,32 @@
 // Buildings, units/spaces and equipment as linked records.
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import {
-  ASSET_STATUSES, BUILDING_KINDS, UNIT_KINDS, UNIT_OCCUPANCY, UNIT_STATUSES, WO_OPEN, isMeterManager,
-  type AssetDTO, type BuildingDTO, type UnitDTO,
+  ASSET_STATUSES, BUILDING_KINDS, scopeFor, UNIT_KINDS, UNIT_OCCUPANCY, UNIT_STATUSES, WO_OPEN, isMeterManager,
+  type AssetDTO, type BuildingChangeDTO, type BuildingDTO, type UnitDTO,
 } from "@pmd/shared";
-import { prisma, allProperties, audit, scopeOf } from "../db.ts";
+import { prisma, allProperties, audit } from "../db.ts";
 import { HttpError, requireTab, staffOnly } from "../auth.ts";
 
 export const assetsRouter = Router();
 assetsRouter.use(staffOnly);
 const canRead = requireTab("ast", 1);
-const canWrite = requireTab("ast", 2);
+const astWrite = requireTab("ast", 2);
+/** Edit access to the asset records. The Department Head always has it, whatever the screen access says. */
+const canWrite: RequestHandler = (req, res, next) => (req.user?.role === "Department Head" ? next() : astWrite(req, res, next));
+const DH_ONLY = "Only the Department Head can add, rename or archive buildings";
+const isDH = (req: Request) => req.user!.role === "Department Head";
 
 const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31");
 const OPEN = [...WO_OPEN, "Completed"];
 
 /** The buildings this user may see, as { id, name }. */
-export async function scopedProperties(req: Request) {
-  const names = new Set(await scopeOf(req.user!));
-  return (await allProperties()).filter((p) => names.has(p.name));
+export async function scopedProperties(req: Request, includeArchived = false) {
+  const all = await allProperties(includeArchived);
+  const names = new Set(scopeFor(req.user!, all));
+  return all.filter((p) => names.has(p.name));
 }
 /** Throws unless the building id is in the user's scope. Returns its name. */
 export async function checkProperty(req: Request, propertyId: string) {
@@ -59,7 +64,7 @@ assetsRouter.get("/lookup", async (req, res, next) => {
 // ---------- buildings ----------
 assetsRouter.get("/buildings", canRead, async (req, res, next) => {
   try {
-    const props = await scopedProperties(req);
+    const props = await scopedProperties(req, req.query.archived === "1");
     const rows = await prisma.property.findMany({
       where: { id: { in: props.map((p) => p.id) } },
       include: { section: true, _count: { select: { units: true, assets: true, meters: true } } },
@@ -67,7 +72,8 @@ assetsRouter.get("/buildings", canRead, async (req, res, next) => {
     const byId = new Map(rows.map((r) => [r.id, r]));
     res.json(props.map((p): BuildingDTO => {
       const r = byId.get(p.id)!;
-      return { id: r.id, name: r.name, section: r.section?.name ?? null, kind: r.kind as BuildingDTO["kind"], code: r.code, address: r.address, floors: r.floors, notes: r.notes, unitCount: r._count.units, assetCount: r._count.assets, meterCount: r._count.meters };
+      return { id: r.id, name: r.name, section: r.section?.name ?? null, kind: r.kind as BuildingDTO["kind"], code: r.code, address: r.address, floors: r.floors, notes: r.notes, unitCount: r._count.units, assetCount: r._count.assets, meterCount: r._count.meters,
+        archivedAt: r.archivedAt ? r.archivedAt.toISOString() : null, archivedBy: r.archivedBy, archiveReason: r.archiveReason };
     }));
   } catch (e) {
     next(e);
@@ -91,14 +97,14 @@ async function sectionId(req: Request, name: string | null) {
 // building changes everyone's scope and the dashboards.
 assetsRouter.post("/buildings", canWrite, async (req, res, next) => {
   try {
-    if (req.user!.role !== "Department Head") throw new HttpError(403, "Only the Department Head can add buildings");
+    if (!isDH(req)) throw new HttpError(403, DH_ONLY);
     const b = z.object({
       name: z.string().trim().min(2, "Give the building a name").max(100),
       section: buildingFields.section.default(null), kind: buildingFields.kind.default("Commercial"), code: buildingFields.code.default(""),
       address: buildingFields.address.default(""), floors: buildingFields.floors.default(null), notes: buildingFields.notes.default(""),
     }).strict().parse(req.body);
     const clash = await prisma.property.findFirst({ where: { name: { equals: b.name, mode: "insensitive" } } });
-    if (clash) throw new HttpError(409, `There is already a building called "${clash.name}"`);
+    if (clash) throw new HttpError(409, clash.archivedAt ? `"${clash.name}" is an archived building. Restore it instead of adding it again.` : `There is already a building called "${clash.name}"`);
     const { section, ...data } = b;
     const p = await prisma.property.create({ data: { ...data, sectionId: await sectionId(req, section) } });
     await audit(req.user!, "building.create", b);
@@ -117,6 +123,86 @@ assetsRouter.patch("/buildings/:id", canWrite, async (req, res, next) => {
     await prisma.property.update({ where: { id: req.params.id }, data });
     await audit(req.user!, "building.update", { id: req.params.id, fields: Object.keys(b).concat(section === undefined ? [] : ["section"]) });
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const reason = z.string().trim().min(5, "Give a reason of at least a few words").max(1000);
+/** A building in the user's scope, archived or not. */
+async function scopedBuilding(req: Request, id: string) {
+  const p = (await scopedProperties(req, true)).find((x) => x.id === id);
+  if (!p) throw new HttpError(404, "Building not found");
+  return prisma.property.findUniqueOrThrow({ where: { id } });
+}
+
+// Renaming changes the name everywhere it is stored as text: registers, concerns, work orders,
+// attachments and the buildings given to each user. All in one transaction.
+assetsRouter.post("/buildings/:id/rename", canRead, async (req, res, next) => {
+  try {
+    if (!isDH(req)) throw new HttpError(403, DH_ONLY);
+    const b = z.object({ name: z.string().trim().min(2, "Give the building a name").max(100), reason }).strict().parse(req.body);
+    const p = await scopedBuilding(req, req.params.id);
+    if (p.archivedAt) throw new HttpError(400, "Restore the building before renaming it");
+    if (b.name === p.name) throw new HttpError(400, "That is already the building's name");
+    const clash = await prisma.property.findFirst({ where: { name: { equals: b.name, mode: "insensitive" }, id: { not: p.id } } });
+    if (clash) throw new HttpError(409, `There is already a building called "${clash.name}"${clash.archivedAt ? " (archived)" : ""}`);
+    const from = p.name, to = b.name;
+    await prisma.$transaction(async (tx) => {
+      await tx.property.update({ where: { id: p.id }, data: { name: to } });
+      await tx.$executeRaw`UPDATE "DatasetRow" SET "property" = ${to}, "data" = jsonb_set("data", '{property}', to_jsonb(${to}::text)) WHERE "property" = ${from}`;
+      await tx.concern.updateMany({ where: { property: from }, data: { property: to } });
+      await tx.workOrder.updateMany({ where: { property: from }, data: { property: to } });
+      await tx.attachment.updateMany({ where: { property: from }, data: { property: to } });
+      await tx.$executeRaw`UPDATE "User" SET "properties" = array_replace("properties", ${from}, ${to}) WHERE ${from} = ANY("properties")`;
+      await tx.propertyChange.create({ data: { propertyId: p.id, kind: "Renamed", fromName: from, toName: to, reason: b.reason, byId: req.user!.id, byName: req.user!.name } });
+    });
+    await audit(req.user!, "building.rename", { id: p.id, from, to, reason: b.reason });
+    res.json({ ok: true, name: to });
+  } catch (e) {
+    next(e);
+  }
+});
+
+assetsRouter.post("/buildings/:id/archive", canRead, async (req, res, next) => {
+  try {
+    if (!isDH(req)) throw new HttpError(403, DH_ONLY);
+    const b = z.object({ reason }).strict().parse(req.body);
+    const p = await scopedBuilding(req, req.params.id);
+    if (p.archivedAt) throw new HttpError(400, "This building is already archived");
+    await prisma.$transaction([
+      prisma.property.update({ where: { id: p.id }, data: { archivedAt: new Date(), archivedBy: req.user!.name, archiveReason: b.reason } }),
+      prisma.propertyChange.create({ data: { propertyId: p.id, kind: "Archived", fromName: p.name, toName: p.name, reason: b.reason, byId: req.user!.id, byName: req.user!.name } }),
+    ]);
+    await audit(req.user!, "building.archive", { id: p.id, name: p.name, reason: b.reason });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+assetsRouter.post("/buildings/:id/restore", canRead, async (req, res, next) => {
+  try {
+    if (!isDH(req)) throw new HttpError(403, DH_ONLY);
+    const b = z.object({ reason }).strict().parse(req.body);
+    const p = await scopedBuilding(req, req.params.id);
+    if (!p.archivedAt) throw new HttpError(400, "This building is not archived");
+    await prisma.$transaction([
+      prisma.property.update({ where: { id: p.id }, data: { archivedAt: null, archivedBy: "", archiveReason: "" } }),
+      prisma.propertyChange.create({ data: { propertyId: p.id, kind: "Restored", fromName: p.name, toName: p.name, reason: b.reason, byId: req.user!.id, byName: req.user!.name } }),
+    ]);
+    await audit(req.user!, "building.restore", { id: p.id, name: p.name, reason: b.reason });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+assetsRouter.get("/buildings/:id/history", canRead, async (req, res, next) => {
+  try {
+    const p = await scopedBuilding(req, req.params.id);
+    const rows = await prisma.propertyChange.findMany({ where: { propertyId: p.id }, orderBy: { createdAt: "desc" } });
+    res.json(rows.map((r): BuildingChangeDTO => ({ id: r.id, kind: r.kind as BuildingChangeDTO["kind"], fromName: r.fromName, toName: r.toName, reason: r.reason, byName: r.byName, at: r.createdAt.toISOString() })));
   } catch (e) {
     next(e);
   }
